@@ -1,65 +1,135 @@
-import Image from "next/image";
+import type { Metadata } from "next";
+import LevelSelect from "@/components/LevelSelect";
+import AuthButton from "@/components/ui/AuthButton";
+import { LEVELS } from "@/lib/levels";
 
-export default function Home() {
+export const metadata: Metadata = {
+  title: "Kubetopia — learn Kubernetes by saving a tiny 3D town",
+  alternates: { canonical: "/" },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  name: "Kubetopia",
+  url: "https://play.kubequest.org",
+  description:
+    "An animated, browser-based Kubernetes simulator game. Practice kubectl debugging, node failure recovery, rollbacks, YAML manifests, ConfigMaps, readiness probes and capacity planning across 7 story-driven levels.",
+  genre: ["Educational", "Simulation"],
+  gamePlatform: "Web browser",
+  applicationCategory: "EducationalApplication",
+  operatingSystem: "Any (WebGL browser)",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  educationalUse: "Kubernetes administration practice",
+  isPartOf: { "@type": "WebSite", name: "KubeQuest", url: "https://kubequest.org" },
+};
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="landing">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <header className="landing__hero">
+        <div className="landing__logo">☸️</div>
+        <h1 className="landing__title">Kubetopia</h1>
+        <p className="landing__subtitle">
+          The town of <strong>Kubetopia</strong> runs on a Kubernetes cluster — and you are its new
+          SRE. Debug crash-looping pods, drain dying nodes, roll back cursed deploys, fix YAML
+          blueprints and keep the townsfolk happy through seven escalating, story-driven incidents.
+        </p>
+        <p className="landing__subtitle landing__subtitle--small">
+          Real <code>kubectl</code> commands · real failure patterns · cartoon consequences.
+          No cluster needed — it all runs in your browser.
+        </p>
+        <div className="landing__authbar">
+          <AuthButton />
+          <span className="landing__crosslink">
+            Studying for CKA/CKAD? Build your plan at{" "}
+            <a href="https://kubequest.org" rel="noopener noreferrer">kubequest.org</a> — one
+            sign-in works for both.
+          </span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </header>
+
+      <section aria-labelledby="levels-heading" className="landing__levels">
+        <h2 id="levels-heading" className="landing__h2">Choose your shift</h2>
+        <LevelSelect />
+      </section>
+
+      <section className="landing__about">
+        <h2 className="landing__h2">What you&apos;ll practice</h2>
+        <div className="landing__skills">
+          <div className="skill-card">
+            <h3>🔍 Debugging workloads</h3>
+            <p>
+              Read pod states like an SRE: CrashLoopBackOff, ImagePullBackOff, Pending and Unknown —
+              and the <code>describe</code>/<code>logs</code>/<code>events</code> trail that explains them.
+            </p>
+          </div>
+          <div className="skill-card">
+            <h3>🏥 Surviving node failures</h3>
+            <p>
+              When a node goes NotReady its pods don&apos;t move on their own. Learn the
+              <code> cordon</code> → <code>drain</code> → <code>uncordon</code> cycle that real operators
+              use during hardware failures.
+            </p>
+          </div>
+          <div className="skill-card">
+            <h3>⏪ Rollbacks under pressure</h3>
+            <p>
+              A bad release on launch day is a rite of passage. Practice <code>rollout undo</code>,
+              <code> set image</code> and reading a rollout&apos;s status while the clock ticks.
+            </p>
+          </div>
+          <div className="skill-card">
+            <h3>📐 Capacity & triage</h3>
+            <p>
+              Resource requests are promises. When capacity halves in a storm, do the math, scale the
+              arcade down and keep the hospital up.
+            </p>
+          </div>
+          <div className="skill-card">
+            <h3>📜 YAML manifests</h3>
+            <p>
+              Apply blueprints with <code>kubectl apply -f</code>, meet the API server&apos;s real
+              validation errors — string replicas, selector/label mismatches — and fix them in a live
+              YAML editor.
+            </p>
+          </div>
+          <div className="skill-card">
+            <h3>🎛️ Config & readiness</h3>
+            <p>
+              The two great mysteries of production: pods that crash for a missing ConfigMap key, and
+              pods that are Running yet never Ready because the probe knocks on the wrong port.
+            </p>
+          </div>
         </div>
-      </main>
-    </div>
+      </section>
+
+      <section className="landing__about">
+        <h2 className="landing__h2">The campaign</h2>
+        <ol className="landing__campaign">
+          {LEVELS.map((l) => (
+            <li key={l.id}>
+              <strong>{l.name}</strong> — {l.tagline}
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <footer className="landing__footer">
+        <p>
+          Kubetopia is a learning simulator: the cluster is simulated, the incidents are real-world
+          patterns. Part of{" "}
+          <a href="https://kubequest.org" rel="noopener noreferrer">KubeQuest</a> — pairs well with
+          the official{" "}
+          <a href="https://kubernetes.io/docs/home/" rel="noopener noreferrer" target="_blank">
+            Kubernetes documentation
+          </a>.
+        </p>
+      </footer>
+    </main>
   );
 }

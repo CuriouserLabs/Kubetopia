@@ -1,0 +1,24 @@
+# Firebase App Hosting configuration for Kubetopia (play.kubequest.org).
+#
+# App Hosting detects Next.js automatically: it runs `npm run build` and
+# serves the standalone output. Connect this repo (CuriouserLabs/Kubetopia,
+# branch main) to App Hosting in the Firebase console and every push to
+# main auto-deploys.
+#
+# The Firebase web config is compiled in with safe public defaults
+# (see src/lib/firebase/client.ts), so no env vars are required here.
+# NEXT_PUBLIC_SITE_URL keeps canonical URLs/sitemap on the production domain.
+
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: NEXT_PUBLIC_SITE_URL
+    value: https://play.kubequest.org
+    availability:
+      - BUILD
+      - RUNTIME
