@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     template: "%s · Kubetopia",
   },
   description:
-    "Practice real Kubernetes administration in a cartoon 3D town. Debug CrashLoopBackOffs, drain failing nodes, roll back bad deploys, fix YAML manifests and survive cluster storms across 7 story-driven levels — right in your browser. Part of KubeQuest.",
+    "Practice real Kubernetes administration in a cartoon 3D town. Debug CrashLoopBackOffs, drain failing nodes, roll back bad deploys, fix YAML manifests and survive cluster storms across an ever-growing set of story-driven missions — right in your browser. Part of KubeQuest.",
   keywords: [
     "Kubernetes simulator",
     "Kubernetes game",
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Kubetopia — the animated Kubernetes simulator game",
     description:
-      "Debug pods, drain nodes, fix YAML and survive cluster storms in a cartoon 3D town. 7 story-driven Kubernetes missions, in your browser.",
+      "Debug pods, drain nodes, fix YAML and survive cluster storms in a cartoon 3D town. Story-driven Kubernetes missions, in your browser.",
     url: SITE_URL,
     siteName: "Kubetopia",
     type: "website",

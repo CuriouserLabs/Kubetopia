@@ -14,7 +14,7 @@ const jsonLd = {
   name: "Kubetopia",
   url: "https://play.kubequest.org",
   description:
-    "An animated, browser-based Kubernetes simulator game. Practice kubectl debugging, node failure recovery, rollbacks, YAML manifests, ConfigMaps, readiness probes and capacity planning across 7 story-driven levels.",
+    "An animated, browser-based Kubernetes simulator game. Practice kubectl debugging, node failure recovery, rollbacks, YAML manifests, ConfigMaps, readiness probes and capacity planning across story-driven missions.",
   genre: ["Educational", "Simulation"],
   gamePlatform: "Web browser",
   applicationCategory: "EducationalApplication",
@@ -37,7 +37,8 @@ export default function HomePage() {
         <p className="landing__subtitle">
           The town of <strong>Kubetopia</strong> runs on a Kubernetes cluster — and you are its new
           SRE. Debug crash-looping pods, drain dying nodes, roll back cursed deploys, fix YAML
-          blueprints and keep the townsfolk happy through seven escalating, story-driven incidents.
+          blueprints and keep the townsfolk happy through an ever-growing series of escalating,
+          story-driven incidents.
         </p>
         <p className="landing__subtitle landing__subtitle--small">
           Real <code>kubectl</code> commands · real failure patterns · cartoon consequences.

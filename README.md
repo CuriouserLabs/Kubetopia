@@ -14,7 +14,7 @@ both — but the game is fully playable signed-out, with progress in `localStora
 Built with **Next.js (App Router) + TypeScript + Three.js** (via react-three-fiber).
 The whole cluster simulation runs client-side.
 
-## The campaign (7 escalating levels)
+## The campaign
 
 | # | Level | Real-world skill you practice |
 |---|-------|-------------------------------|
