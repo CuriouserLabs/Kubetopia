@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Baloo_2, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -30,6 +30,18 @@ export const metadata: Metadata = {
     "SRE training",
     "KubeQuest",
   ],
+  // Static raster assets on purpose: social crawlers (LinkedIn especially) are
+  // unreliable with generated image routes and never render SVG.
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
+  manifest: "/site.webmanifest",
   openGraph: {
     title: "Kubetopia — the animated Kubernetes simulator game",
     description:
@@ -37,14 +49,36 @@ export const metadata: Metadata = {
     url: SITE_URL,
     siteName: "Kubetopia",
     type: "website",
+    locale: "en_US",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        type: "image/jpeg",
+        alt: "Kubetopia — learn Kubernetes by saving a tiny 3D town",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Kubetopia — learn Kubernetes by saving a tiny 3D town",
     description:
       "A game-like Kubernetes simulator: real kubectl commands, real failure scenarios, cartoon consequences. Part of KubeQuest.",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Kubetopia — learn Kubernetes by saving a tiny 3D town",
+      },
+    ],
   },
   robots: { index: true, follow: true },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#326ce5",
 };
 
 export default function RootLayout({
