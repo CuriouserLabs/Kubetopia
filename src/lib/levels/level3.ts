@@ -74,10 +74,14 @@ const level3: LevelDef = {
       description:
         "Something just went dark. Confirm which node stopped reporting before touching anything.",
       points: 150,
-      hint: "Run `kubectl get nodes` (and `kubectl get events`) after the blackout hits — one node will show NotReady.",
+      hint: "Run `kubectl get nodes` (or `kubectl get events`) after the blackout hits — one node will show NotReady.",
+      // Deliberately durable: worker-2 recovers on its own at NODE_RECOVERS_AT,
+      // so the check must not require the node to be NotReady *right now* —
+      // any diagnosis command run after the blackout counts, forever.
       check: (ctx) =>
-        ctx.cluster.nodes.some((n) => n.status === "NotReady") &&
-        ranCommand(ctx, /kubectl\s+get\s+(no|node|nodes)\b/, NODE_FAILS_AT),
+        ranCommand(ctx, /kubectl\s+get\s+(no|node|nodes)\b/, NODE_FAILS_AT) ||
+        ranCommand(ctx, /kubectl\s+get\s+(events|ev)\b/, NODE_FAILS_AT) ||
+        ranCommand(ctx, /kubectl\s+describe\s+(no|node|nodes)\s+\S+/, NODE_FAILS_AT),
     },
     {
       id: "drain",

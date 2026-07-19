@@ -75,7 +75,7 @@ const level2: LevelDef = {
         "Ticket pods are Running but the site is dead. Inspect the services and compare selectors against pod labels.",
       points: 150,
       hint: "Run `kubectl get svc` — look hard at the SELECTOR column for ticket-svc, then check pod labels with `kubectl get pods -o wide` or `kubectl describe pod`.",
-      check: (ctx) => ranCommand(ctx, /kubectl\s+get\s+(svc|service|services)\b/),
+      check: (ctx) => ranCommand(ctx, /kubectl\s+(get|describe)\s+(svc|service|services)\b/),
     },
     {
       id: "fix-selector",

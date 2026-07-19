@@ -84,8 +84,8 @@ const level7: LevelDef = {
       points: 150,
       hint: "`kubectl get pods`, then `kubectl logs <town-banners-pod>` (which config key is missing?) and `kubectl describe pod <welcome-hall-pod>` (which port is the probe hitting?).",
       check: (ctx) =>
-        ranCommand(ctx, /kubectl\s+logs\s+town-banners-/) &&
-        ranCommand(ctx, /kubectl\s+describe\s+(po|pod|pods)\s+welcome-hall-/),
+        ranCommand(ctx, /kubectl\s+(logs|describe\s+(po|pod|pods))\s+town-banners-/) &&
+        ranCommand(ctx, /kubectl\s+(logs|describe\s+(po|pod|pods))\s+welcome-hall-/),
     },
     {
       id: "banners",
