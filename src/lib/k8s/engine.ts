@@ -62,6 +62,7 @@ export function emptyCluster(): Cluster {
     deployments: [],
     services: [],
     configMaps: [],
+    secrets: [],
     events: [],
     registry: {},
   };
@@ -71,16 +72,26 @@ export function emptyCluster(): Cluster {
  * Why a deployment's pods can't start or go Ready — mirrors the two most
  * common "it deployed but it doesn't work" causes in real clusters.
  */
+export interface StartupIssue {
+  configMissing?: { name: string; key: string };
+  secretMissing?: { name: string; key: string };
+  probeBroken?: boolean;
+}
+
 export function podStartupIssue(
   cluster: Cluster,
   deploymentName: string | undefined
-): { configMissing?: { name: string; key: string }; probeBroken?: boolean } {
+): StartupIssue {
   const d = cluster.deployments.find((x) => x.name === deploymentName);
   if (!d) return {};
-  const issue: { configMissing?: { name: string; key: string }; probeBroken?: boolean } = {};
+  const issue: StartupIssue = {};
   if (d.configRef) {
     const cm = cluster.configMaps.find((c) => c.name === d.configRef!.name);
     if (!cm || !(d.configRef.key in cm.data)) issue.configMissing = d.configRef;
+  }
+  if (d.secretRef) {
+    const sec = cluster.secrets.find((s) => s.name === d.secretRef!.name);
+    if (!sec || !(d.secretRef.key in sec.data)) issue.secretMissing = d.secretRef;
   }
   const listens = d.containerPort ?? 8080;
   if (d.probePort !== undefined && d.probePort !== listens) issue.probeBroken = true;
@@ -318,7 +329,7 @@ export function tick(cluster: Cluster) {
       }
       case "Running": {
         const issue = podStartupIssue(cluster, pod.owner);
-        if (image?.crashes || issue.configMissing) {
+        if (image?.crashes || issue.configMissing || issue.secretMissing) {
           pod.ready = false;
           if (pod.phaseTicks >= CRASH_AFTER) {
             pod.restarts += 1;
@@ -331,7 +342,9 @@ export function tick(cluster: Cluster) {
               `pod/${pod.name}`,
               issue.configMissing
                 ? `BackOff: container crashed — config key "${issue.configMissing.key}" not found in ConfigMap "${issue.configMissing.name}"`
-                : `BackOff: container exited with code 1, restarting (${pod.restarts})`
+                : issue.secretMissing
+                  ? `BackOff: container crashed — key "${issue.secretMissing.key}" not found in Secret "${issue.secretMissing.name}"`
+                  : `BackOff: container exited with code 1, restarting (${pod.restarts})`
             );
           }
         } else if (issue.probeBroken) {

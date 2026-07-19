@@ -5,7 +5,7 @@ import { serviceHealth, tick as engineTick } from "@/lib/k8s/engine";
 import type { Cluster } from "@/lib/k8s/types";
 import { HELP_TEXT, runKubectl, type EditorRequest } from "@/lib/k8s/kubectl";
 import { applyYaml, ManifestError } from "@/lib/k8s/manifest";
-import { getLevel, LEVELS } from "@/lib/levels";
+import { getLevel, levelsForTrack, trackOf } from "@/lib/levels";
 import type { CommandEntry, LevelDef, SpeakerId } from "@/lib/levels/types";
 import { saveCloudProgress } from "@/lib/firebase/progress";
 
@@ -202,7 +202,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       score += timeBonus;
       finalStars = cluster.tick <= s.level.parTicks ? 3 : cluster.tick <= s.level.parTicks * 1.6 ? 2 : 1;
       progress = { ...progress };
-      progress.unlocked = Math.max(progress.unlocked, Math.min(LEVELS.length, s.level.id + 1));
+      // The legacy `unlocked` counter only tracks the original city campaign;
+      // other tracks unlock from their stars/bestScores (see isLevelUnlocked).
+      if (trackOf(s.level) === "cka") {
+        const maxCkaId = Math.max(...levelsForTrack("cka").map((l) => l.id));
+        progress.unlocked = Math.max(progress.unlocked, Math.min(maxCkaId, s.level.id + 1));
+      }
       progress.bestScores = { ...progress.bestScores, [s.level.id]: Math.max(progress.bestScores[s.level.id] ?? 0, score) };
       progress.stars = { ...progress.stars, [s.level.id]: Math.max(progress.stars[s.level.id] ?? 0, finalStars) };
       saveProgress(progress);

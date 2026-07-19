@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useGameStore } from "@/store/gameStore";
-import { LEVELS, maxScore } from "@/lib/levels";
+import { levelsForTrack, maxScore, missionNumber, trackOf } from "@/lib/levels";
 
 export default function LevelCompleteModal() {
   const level = useGameStore((s) => s.level);
@@ -14,7 +14,10 @@ export default function LevelCompleteModal() {
   const startLevel = useGameStore((s) => s.startLevel);
   if (!level || !levelComplete || !cluster) return null;
 
-  const next = LEVELS.find((l) => l.id === level.id + 1);
+  const track = levelsForTrack(trackOf(level));
+  const idx = track.findIndex((l) => l.id === level.id);
+  const next = track[idx + 1];
+  const label = `Mission ${missionNumber(level)}`;
   const mins = Math.floor(cluster.tick / 60);
   const secs = cluster.tick % 60;
 
@@ -26,7 +29,7 @@ export default function LevelCompleteModal() {
             <span key={i} className={i <= stars ? "star star--lit" : "star"}>★</span>
           ))}
         </div>
-        <h3 className="story-card__title">Level {level.id} complete!</h3>
+        <h3 className="story-card__title">{label} complete!</h3>
         <p className="story-card__body">{level.outro}</p>
         <div className="story-card__scores">
           <div>Objectives: <strong>{score - timeBonus}</strong> / {maxScore(level)}</div>
@@ -40,7 +43,9 @@ export default function LevelCompleteModal() {
               Next: {next.name} ▸
             </Link>
           ) : (
-            <Link className="btn btn--primary" href="/">🏆 You beat Kubetopia!</Link>
+            <Link className="btn btn--primary" href="/">
+              {trackOf(level) === "ckad" ? "🏆 Kubetopia General salutes you!" : "🏆 You beat Kubetopia!"}
+            </Link>
           )}
         </div>
       </div>

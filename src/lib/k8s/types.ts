@@ -64,10 +64,18 @@ export interface K8sDeployment {
   probePort?: number;
   /** Required config: pod crashes at startup if the map/key is missing. */
   configRef?: { name: string; key: string };
+  /** Required secret: pod crashes at startup if the secret/key is missing. */
+  secretRef?: { name: string; key: string };
 }
 
 export interface K8sConfigMap {
   name: string;
+  data: Record<string, string>;
+}
+
+export interface K8sSecret {
+  name: string;
+  /** Stored decoded; kubectl output never prints the values. */
   data: Record<string, string>;
 }
 
@@ -101,6 +109,7 @@ export interface Cluster {
   deployments: K8sDeployment[];
   services: K8sService[];
   configMaps: K8sConfigMap[];
+  secrets: K8sSecret[];
   events: ClusterEvent[];
   /** Simulated container registry keyed by image ref. */
   registry: Record<string, ImageInfo>;

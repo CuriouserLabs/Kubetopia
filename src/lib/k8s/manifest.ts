@@ -9,7 +9,7 @@
 import { parseAllDocuments } from "yaml";
 import { stringify } from "yaml";
 import { addEvent, rolloutDeployment } from "./engine";
-import type { Cluster, K8sConfigMap, K8sDeployment, K8sService } from "./types";
+import type { Cluster, K8sConfigMap, K8sDeployment, K8sSecret, K8sService } from "./types";
 
 export class ManifestError extends Error {}
 
@@ -99,6 +99,17 @@ function applyDeployment(cluster: Cluster, doc: any): string {
     };
   }
 
+  let secretRef: { name: string; key: string } | undefined;
+  const secretEnvEntry = Array.isArray(c?.env)
+    ? c.env.find((e: any) => e?.valueFrom?.secretKeyRef)
+    : undefined;
+  if (secretEnvEntry) {
+    secretRef = {
+      name: req(secretEnvEntry.valueFrom.secretKeyRef.name, "env.valueFrom.secretKeyRef.name") as string,
+      key: req(secretEnvEntry.valueFrom.secretKeyRef.key, "env.valueFrom.secretKeyRef.key") as string,
+    };
+  }
+
   const existing = cluster.deployments.find((d) => d.name === name);
   if (existing) {
     const podSpecChanged =
@@ -106,6 +117,7 @@ function applyDeployment(cluster: Cluster, doc: any): string {
       existing.containerPort !== containerPort ||
       existing.probePort !== probePort ||
       JSON.stringify(existing.configRef) !== JSON.stringify(configRef) ||
+      JSON.stringify(existing.secretRef) !== JSON.stringify(secretRef) ||
       existing.cpuPerPod !== cpu ||
       existing.memPerPod !== memory;
     if (existing.image !== image) existing.previousImage = existing.image;
@@ -117,6 +129,7 @@ function applyDeployment(cluster: Cluster, doc: any): string {
     existing.containerPort = containerPort;
     existing.probePort = probePort;
     existing.configRef = configRef;
+    existing.secretRef = secretRef;
     if (podSpecChanged) rolloutDeployment(cluster, existing);
     addEvent(cluster, "Normal", `deployment/${name}`, "Configured via apply");
     return `deployment.apps/${name} configured`;
@@ -132,6 +145,7 @@ function applyDeployment(cluster: Cluster, doc: any): string {
     containerPort,
     probePort,
     configRef,
+    secretRef,
   };
   cluster.deployments.push(d);
   addEvent(cluster, "Normal", `deployment/${name}`, "Created via apply");
@@ -183,6 +197,42 @@ function applyConfigMap(cluster: Cluster, doc: any): string {
   return `configmap/${name} created`;
 }
 
+/* ------------------------------- Secret ------------------------------- */
+
+function decodeBase64(value: string): string {
+  try {
+    return atob(value);
+  } catch {
+    return value; // not valid base64 — keep as-is, the game is forgiving
+  }
+}
+
+function applySecret(cluster: Cluster, doc: any): string {
+  const name = validName(doc?.metadata?.name, "metadata.name");
+  const stringData = doc?.stringData ?? {};
+  const data = doc?.data ?? {};
+  for (const d of [stringData, data]) {
+    if (typeof d !== "object" || Array.isArray(d)) {
+      throw new ManifestError(`The Secret "${name}" is invalid: data must be a map of string keys to string values`);
+    }
+  }
+  // Real secrets carry base64 in `data`; `stringData` is the plain-text
+  // convenience field. Store everything decoded.
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data)) clean[k] = decodeBase64(String(v));
+  for (const [k, v] of Object.entries(stringData)) clean[k] = String(v);
+  const existing = cluster.secrets.find((s) => s.name === name);
+  if (existing) {
+    existing.data = clean;
+    addEvent(cluster, "Normal", `secret/${name}`, "Configured via apply");
+    return `secret/${name} configured`;
+  }
+  const sec: K8sSecret = { name, data: clean };
+  cluster.secrets.push(sec);
+  addEvent(cluster, "Normal", `secret/${name}`, "Created via apply");
+  return `secret/${name} created`;
+}
+
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* ------------------------------ applyYaml ----------------------------- */
@@ -224,8 +274,11 @@ export function applyYaml(
       case "ConfigMap":
         results.push(applyConfigMap(cluster, doc));
         break;
+      case "Secret":
+        results.push(applySecret(cluster, doc));
+        break;
       default:
-        throw new ManifestError(`error: the simulator doesn't support kind "${kind}" (Deployment, Service and ConfigMap are available)`);
+        throw new ManifestError(`error: the simulator doesn't support kind "${kind}" (Deployment, Service, ConfigMap and Secret are available)`);
     }
   }
   if (results.length === 0) throw new ManifestError("error: no objects passed to apply");
@@ -244,14 +297,20 @@ export function deploymentToYaml(d: K8sDeployment): string {
   if (d.probePort !== undefined) {
     container.readinessProbe = { httpGet: { path: "/healthz", port: d.probePort } };
   }
+  const env: unknown[] = [];
   if (d.configRef) {
-    container.env = [
-      {
-        name: d.configRef.key.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(),
-        valueFrom: { configMapKeyRef: { name: d.configRef.name, key: d.configRef.key } },
-      },
-    ];
+    env.push({
+      name: d.configRef.key.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(),
+      valueFrom: { configMapKeyRef: { name: d.configRef.name, key: d.configRef.key } },
+    });
   }
+  if (d.secretRef) {
+    env.push({
+      name: d.secretRef.key.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(),
+      valueFrom: { secretKeyRef: { name: d.secretRef.name, key: d.secretRef.key } },
+    });
+  }
+  if (env.length > 0) container.env = env;
   return stringify({
     apiVersion: "apps/v1",
     kind: "Deployment",
@@ -273,6 +332,17 @@ export function serviceToYaml(s: K8sService): string {
     kind: "Service",
     metadata: { name: s.name },
     spec: { selector: { app: s.selectorApp }, ports: [{ port: s.port }] },
+  });
+}
+
+export function secretToYaml(s: K8sSecret): string {
+  return stringify({
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: { name: s.name },
+    type: "Opaque",
+    // Shown as stringData so the editor stays human-readable.
+    stringData: s.data,
   });
 }
 

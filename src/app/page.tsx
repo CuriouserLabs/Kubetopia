@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import LevelSelect from "@/components/LevelSelect";
+import Link from "next/link";
 import AuthButton from "@/components/ui/AuthButton";
-import { LEVELS } from "@/lib/levels";
+import TrackProgressBadge from "@/components/TrackProgressBadge";
+import { TRACKS } from "@/lib/levels";
 
 export const metadata: Metadata = {
-  title: "Kubetopia — learn Kubernetes by saving a tiny 3D town",
+  title: "Kubetopia — learn Kubernetes by saving a tiny 3D world",
   alternates: { canonical: "/" },
 };
 
@@ -14,118 +15,130 @@ const jsonLd = {
   name: "Kubetopia",
   url: "https://play.kubequest.org",
   description:
-    "An animated, browser-based Kubernetes simulator game. Practice kubectl debugging, node failure recovery, rollbacks, YAML manifests, ConfigMaps, readiness probes and capacity planning across story-driven missions.",
+    "An animated, browser-based Kubernetes simulator game. Pick your path — cluster admin (CKA-style city campaign) or app developer (CKAD-style hospital campaign) — and practice kubectl debugging, node failures, rollbacks, YAML, ConfigMaps, Secrets and readiness probes across story-driven missions.",
   genre: ["Educational", "Simulation"],
   gamePlatform: "Web browser",
   applicationCategory: "EducationalApplication",
   operatingSystem: "Any (WebGL browser)",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  educationalUse: "Kubernetes administration practice",
+  educationalUse: "Kubernetes administration and application development practice",
   isPartOf: { "@type": "WebSite", name: "KubeQuest", url: "https://kubequest.org" },
 };
 
+const ROADMAP = [
+  {
+    icon: "🎲",
+    name: "Challenge Mode",
+    text: "“Surprise me” — seeded random incidents you can't memorize, in three difficulty tiers.",
+  },
+  {
+    icon: "🌅",
+    name: "The Daily Challenge",
+    text: "One puzzle per day, the same for the whole world. Streaks, leaderboards, bragging rights.",
+  },
+  {
+    icon: "🌩️",
+    name: "The Living City",
+    text: "Sign in, walk the plaza with other SREs — and when the storm hits, it hits everyone at once.",
+  },
+  {
+    icon: "🏝️",
+    name: "The Archipelago",
+    text: "New districts beyond the city: the Harbor, the Observatory, the Frozen Datacenter…",
+  },
+];
+
 export default function HomePage() {
   return (
-    <main className="landing">
+    <main className="gamefront gate">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <header className="landing__hero">
-        <div className="landing__logo">☸️</div>
-        <h1 className="landing__title">Kubetopia</h1>
-        <p className="landing__subtitle">
-          The town of <strong>Kubetopia</strong> runs on a Kubernetes cluster — and you are its new
-          SRE. Debug crash-looping pods, drain dying nodes, roll back cursed deploys, fix YAML
-          blueprints and keep the townsfolk happy through an ever-growing series of escalating,
-          story-driven incidents.
-        </p>
-        <p className="landing__subtitle landing__subtitle--small">
-          Real <code>kubectl</code> commands · real failure patterns · cartoon consequences.
-          No cluster needed — it all runs in your browser.
-        </p>
-        <div className="landing__authbar">
-          <AuthButton />
-          <span className="landing__crosslink">
-            Studying for CKA/CKAD? Build your plan at{" "}
-            <a href="https://kubequest.org" rel="noopener noreferrer">kubequest.org</a> — one
-            sign-in works for both.
-          </span>
-        </div>
+      <div className="gamefront__stars" aria-hidden />
+
+      <header className="gamefront__top">
+        <span className="gate__brand">☸️ Kubetopia</span>
+        <AuthButton />
       </header>
 
-      <section aria-labelledby="levels-heading" className="landing__levels">
-        <h2 id="levels-heading" className="landing__h2">Choose your shift</h2>
-        <LevelSelect />
+      <section className="gate__hero">
+        <div className="gate__isle" aria-hidden>
+          <span className="gate__cloud gate__cloud--1">☁️</span>
+          <span className="gate__island">🏝️</span>
+          <span className="gate__cloud gate__cloud--2">☁️</span>
+        </div>
+        <h1 className="gate__title">KUBETOPIA</h1>
+        <p className="gate__tagline">
+          A tiny floating world runs on Kubernetes. <strong>You keep it alive.</strong>
+        </p>
+        <p className="gate__sub">
+          Real <code>kubectl</code> commands · real failure patterns · cartoon consequences.
+          No cluster, no sign-up — it all runs in your browser.
+        </p>
+        <a href="#paths" className="gate__cta">▾ Choose your path</a>
       </section>
 
-      <section className="landing__about">
-        <h2 className="landing__h2">What you&apos;ll practice</h2>
-        <div className="landing__skills">
-          <div className="skill-card">
-            <h3>🔍 Debugging workloads</h3>
-            <p>
-              Read pod states like an SRE: CrashLoopBackOff, ImagePullBackOff, Pending and Unknown —
-              and the <code>describe</code>/<code>logs</code>/<code>events</code> trail that explains them.
-            </p>
-          </div>
-          <div className="skill-card">
-            <h3>🏥 Surviving node failures</h3>
-            <p>
-              When a node goes NotReady its pods don&apos;t move on their own. Learn the
-              <code> cordon</code> → <code>drain</code> → <code>uncordon</code> cycle that real operators
-              use during hardware failures.
-            </p>
-          </div>
-          <div className="skill-card">
-            <h3>⏪ Rollbacks under pressure</h3>
-            <p>
-              A bad release on launch day is a rite of passage. Practice <code>rollout undo</code>,
-              <code> set image</code> and reading a rollout&apos;s status while the clock ticks.
-            </p>
-          </div>
-          <div className="skill-card">
-            <h3>📐 Capacity & triage</h3>
-            <p>
-              Resource requests are promises. When capacity halves in a storm, do the math, scale the
-              arcade down and keep the hospital up.
-            </p>
-          </div>
-          <div className="skill-card">
-            <h3>📜 YAML manifests</h3>
-            <p>
-              Apply blueprints with <code>kubectl apply -f</code>, meet the API server&apos;s real
-              validation errors — string replicas, selector/label mismatches — and fix them in a live
-              YAML editor.
-            </p>
-          </div>
-          <div className="skill-card">
-            <h3>🎛️ Config & readiness</h3>
-            <p>
-              The two great mysteries of production: pods that crash for a missing ConfigMap key, and
-              pods that are Running yet never Ready because the probe knocks on the wrong port.
+      <section id="paths" className="gate__paths" aria-labelledby="paths-heading">
+        <h2 id="paths-heading" className="gamefront__h2">Choose your path</h2>
+        <div className="portals">
+          {TRACKS.map((t) => (
+            <Link key={t.id} href={`/campaign/${t.slug}`} className={`portal portal--${t.id}`}>
+              <span className="portal__cert">{t.cert}</span>
+              <span className="portal__icon" aria-hidden>{t.icon}</span>
+              <span className="portal__role">{t.role}</span>
+              <span className="portal__name">{t.title}</span>
+              <span className="portal__tagline">{t.tagline}</span>
+              <span className="portal__skills">
+                {t.skills.map((s) => (
+                  <span key={s} className="portal__skill">{s}</span>
+                ))}
+              </span>
+              <span className="portal__footer">
+                <TrackProgressBadge track={t.id} />
+                <span className="portal__enter">Enter ▸</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+        <p className="gate__paths-note">
+          Both paths share one town, one console and one save file — play them in any order.
+        </p>
+      </section>
+
+      <section className="gate__roadmap" aria-labelledby="roadmap-heading">
+        <h2 id="roadmap-heading" className="gamefront__h2">The island keeps growing</h2>
+        <p className="gate__roadmap-note">From the roadmap — not playable yet, but the ferries are booked.</p>
+        <div className="roadmap">
+          {ROADMAP.map((r) => (
+            <div key={r.name} className="roadmap__card">
+              <span className="roadmap__icon" aria-hidden>{r.icon}</span>
+              <span className="roadmap__name">{r.name}</span>
+              <span className="roadmap__text">{r.text}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="gate__guild">
+        <div className="guild-sign">
+          <span className="guild-sign__icon" aria-hidden>🗺️</span>
+          <div>
+            <p className="guild-sign__title">Questing toward the real CKA/CKAD?</p>
+            <p className="guild-sign__text">
+              The <a href="https://kubequest.org" rel="noopener noreferrer" target="_blank">KubeQuest guild hall</a>{" "}
+              builds your free study plan and tracks your progress — one sign-in works for both worlds.
             </p>
           </div>
         </div>
       </section>
 
-      <section className="landing__about">
-        <h2 className="landing__h2">The campaign</h2>
-        <ol className="landing__campaign">
-          {LEVELS.map((l) => (
-            <li key={l.id}>
-              <strong>{l.name}</strong> — {l.tagline}
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <footer className="landing__footer">
+      <footer className="gamefront__footer">
         <p>
           Kubetopia is a learning simulator: the cluster is simulated, the incidents are real-world
           patterns. Part of{" "}
-          <a href="https://kubequest.org" rel="noopener noreferrer">KubeQuest</a> — pairs well with
-          the official{" "}
+          <a href="https://kubequest.org" rel="noopener noreferrer" target="_blank">KubeQuest</a> — pairs well with the
+          official{" "}
           <a href="https://kubernetes.io/docs/home/" rel="noopener noreferrer" target="_blank">
             Kubernetes documentation
           </a>.

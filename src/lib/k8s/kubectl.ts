@@ -13,7 +13,7 @@ import {
   rolloutDeployment,
   terminatePod,
 } from "./engine";
-import { configMapToYaml, deploymentToYaml, serviceToYaml } from "./manifest";
+import { configMapToYaml, deploymentToYaml, secretToYaml, serviceToYaml } from "./manifest";
 import type { Cluster, K8sPod } from "./types";
 
 /** Request to open the YAML editor modal (kubectl edit / apply -f). */
@@ -64,6 +64,7 @@ const NODE_ALIASES = ["node", "nodes", "no"];
 const DEPLOY_ALIASES = ["deployment", "deployments", "deploy"];
 const SVC_ALIASES = ["service", "services", "svc"];
 const CM_ALIASES = ["configmap", "configmaps", "cm"];
+const SECRET_ALIASES = ["secret", "secrets"];
 
 /** Splits "deployment/web" or ("deployment", "web") into kind + name. */
 function kindAndName(args: string[]): { kind?: string; name?: string; rest: string[] } {
@@ -179,6 +180,31 @@ function describeConfigMap(c: Cluster, name: string): CmdResult {
   return out(lines.join("\n"));
 }
 
+function getSecrets(c: Cluster): CmdResult {
+  if (c.secrets.length === 0) return out("No resources found in default namespace.");
+  return out(
+    table(
+      ["NAME", "TYPE", "DATA", "KEYS"],
+      c.secrets.map((s) => [
+        s.name,
+        "Opaque",
+        String(Object.keys(s.data).length),
+        Object.keys(s.data).join(", ") || "<none>",
+      ])
+    )
+  );
+}
+
+function describeSecret(c: Cluster, name: string): CmdResult {
+  const s = c.secrets.find((x) => x.name === name);
+  if (!s) return err(`Error from server (NotFound): secrets "${name}" not found`);
+  const lines = [`Name:         ${s.name}`, `Type:         Opaque`, ``, `Data`, `====`];
+  // Like the real kubectl, values are never printed — only sizes.
+  for (const [k, v] of Object.entries(s.data)) lines.push(`${k}:  ${v.length} bytes`);
+  if (Object.keys(s.data).length === 0) lines.push("<empty>");
+  return out(lines.join("\n"));
+}
+
 function getEvents(c: Cluster): CmdResult {
   const recent = c.events.slice(-15);
   if (recent.length === 0) return out("No events found.");
@@ -230,6 +256,13 @@ function describePod(c: Cluster, name: string): CmdResult {
       "",
       `Warning: container requires config key "${issue.configMissing.key}" from ConfigMap "${issue.configMissing.name}", which is missing.`,
       `Check \`kubectl describe configmap ${issue.configMissing.name}\`.`
+    );
+  }
+  if (issue.secretMissing) {
+    lines.push(
+      "",
+      `Warning: container requires key "${issue.secretMissing.key}" from Secret "${issue.secretMissing.name}", which is missing.`,
+      `Check \`kubectl get secrets\` — does that secret (and that key) exist?`
     );
   }
   if (issue.probeBroken && p.phase === "Running") {
@@ -304,6 +337,7 @@ export function runKubectl(
       if (DEPLOY_ALIASES.includes(kind)) return getDeployments(cluster);
       if (SVC_ALIASES.includes(kind)) return getServices(cluster);
       if (CM_ALIASES.includes(kind)) return getConfigMaps(cluster);
+      if (SECRET_ALIASES.includes(kind)) return getSecrets(cluster);
       if (kind === "events" || kind === "ev") return getEvents(cluster);
       if (kind === "all") {
         return out(
@@ -320,6 +354,7 @@ export function runKubectl(
       if (NODE_ALIASES.includes(kind)) return describeNode(cluster, name);
       if (DEPLOY_ALIASES.includes(kind)) return describeDeployment(cluster, name);
       if (CM_ALIASES.includes(kind)) return describeConfigMap(cluster, name);
+      if (SECRET_ALIASES.includes(kind)) return describeSecret(cluster, name);
       return err(`error: the server doesn't have a resource type "${kind}"`);
     }
 
@@ -373,7 +408,16 @@ export function runKubectl(
           editor: { title: `edit configmap/${name}`, content: configMapToYaml(cm), resource: { kind: "ConfigMap", name } },
         };
       }
-      return err(`error: editing "${kind}" is not supported (deployment, service, configmap)`);
+      if (SECRET_ALIASES.includes(kind)) {
+        const sec = cluster.secrets.find((x) => x.name === name);
+        if (!sec) return err(`Error from server (NotFound): secrets "${name}" not found`);
+        return {
+          ok: true,
+          output: `Opening secret/${name} in the editor...`,
+          editor: { title: `edit secret/${name}`, content: secretToYaml(sec), resource: { kind: "Secret", name } },
+        };
+      }
+      return err(`error: editing "${kind}" is not supported (deployment, service, configmap, secret)`);
     }
 
     case "logs": {
@@ -392,6 +436,16 @@ export function runKubectl(
             `${p.image} starting...`,
             `reading configuration from ConfigMap "${issue.configMissing.name}"...`,
             `FATAL: required config key "${issue.configMissing.key}" not found`,
+            `process exited with code 1`,
+          ].join("\n")
+        );
+      }
+      if (issue.secretMissing) {
+        return out(
+          [
+            `${p.image} starting...`,
+            `loading credentials from Secret "${issue.secretMissing.name}"...`,
+            `FATAL: required secret key "${issue.secretMissing.key}" not found`,
             `process exited with code 1`,
           ].join("\n")
         );
@@ -526,10 +580,10 @@ export function runKubectl(
 }
 
 export const HELP_TEXT = `Kubetopia console — supported commands
-  kubectl get nodes|pods|deployments|services|configmaps|events|all
+  kubectl get nodes|pods|deployments|services|configmaps|secrets|events|all
       (aliases: no, po, deploy, svc, cm)
   kubectl get pods -o wide
-  kubectl describe pod|node|deployment|configmap <name>
+  kubectl describe pod|node|deployment|configmap|secret <name>
   kubectl logs <pod>
   kubectl delete pod <name>
   kubectl scale deployment/<name> --replicas=<n>
@@ -538,7 +592,7 @@ export const HELP_TEXT = `Kubetopia console — supported commands
   kubectl cordon|uncordon|drain <node>
   kubectl patch service <name> -p '{"spec":{"selector":{"app":"<value>"}}}'
   kubectl apply -f <file.yaml>   — open a blueprint in the YAML editor & apply
-  kubectl edit deployment|service|configmap <name>   — edit live YAML
+  kubectl edit deployment|service|configmap|secret <name>   — edit live YAML
   ls        — list blueprint files in this mission
   cat <file> — print a blueprint file
   hint      — nudge for the current objective

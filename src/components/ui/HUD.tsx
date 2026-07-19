@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { missionNumber, trackOf } from "@/lib/levels";
 import { useGameStore } from "@/store/gameStore";
 import AuthButton from "./AuthButton";
 
@@ -24,11 +25,15 @@ export default function HUD() {
 
   return (
     <div className="hud">
-      <Link href="/" className="hud__back" title="Back to level select">
-        ⬅ Town Hall
+      <Link
+        href={`/campaign/${trackOf(level)}`}
+        className="hud__back"
+        title="Back to the mission select"
+      >
+        ⬅ Missions
       </Link>
       <div className="hud__level">
-        <span className="hud__level-num">Level {level.id}</span>
+        <span className="hud__level-num">Mission {missionNumber(level)}</span>
         <span className="hud__level-name">{level.name}</span>
       </div>
       <div className="hud__stats">

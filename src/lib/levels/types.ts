@@ -54,11 +54,17 @@ export interface ScriptedEvent {
   mutate?: (cluster: Cluster) => void;
 }
 
+/** Campaign tracks: the city missions (CKA-style ops) and the hospital
+ *  missions (CKAD-style app development). Levels without a track are "cka". */
+export type TrackId = "cka" | "ckad";
+
 export interface LevelDef {
   id: number;
   slug: string;
   name: string;
   tagline: string;
+  /** Which campaign this mission belongs to; defaults to "cka". */
+  track?: TrackId;
   /** Intro dialog pages shown before the level starts. */
   story: StoryPage[];
   outro: string;

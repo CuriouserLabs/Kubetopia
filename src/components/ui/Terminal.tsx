@@ -6,15 +6,27 @@ import { useGameStore } from "@/store/gameStore";
 export default function Terminal() {
   const terminal = useGameStore((s) => s.terminal);
   const runCommand = useGameStore((s) => s.runCommand);
+  const dialogCount = useGameStore((s) => s.dialogs.length);
+  const editorOpen = useGameStore((s) => s.editor !== null);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [histIdx, setHistIdx] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevDialogCount = useRef(dialogCount);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [terminal]);
+
+  // When a story pop-up (intro or mid-mission event) is fully dismissed, hand
+  // focus back to the console so the player can keep typing without a click.
+  useEffect(() => {
+    if (prevDialogCount.current > 0 && dialogCount === 0 && !editorOpen) {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+    prevDialogCount.current = dialogCount;
+  }, [dialogCount, editorOpen]);
 
   const submit = () => {
     const cmd = input.trim();

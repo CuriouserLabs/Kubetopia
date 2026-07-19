@@ -234,5 +234,37 @@ everything else is read-only to clients.
 
 ---
 
+## 7. UI shell notes (July 2026 — landing & campaign pages redesign)
+
+Shipped alongside the CKAD Hospital Campaign; recorded here because the new
+shell was deliberately shaped to absorb the steps above.
+
+- **The landing page is now "The Gateway"** — a dark, game-styled path-select
+  screen: hero → "Choose your path" portals → roadmap teasers → KubeQuest
+  guild sign. It no longer lists individual missions; each campaign lives at
+  `/campaign/{slug}` with its own themed hero, mission grid and metadata.
+- **Everything is driven by `TRACKS` data** (`src/lib/levels/index.ts`,
+  `TrackInfo`): a portal card and a campaign page exist because a track entry
+  exists. **Step 4's districts (Harbor, Observatory, Frozen Datacenter,
+  Bazaar) should ship as new `TRACKS` entries** — no new page code. When a
+  district needs its own visual identity beyond accent colors, extend
+  `TrackInfo`, don't fork the page.
+- **The roadmap strip on the landing page mirrors Steps 1–4** (Challenge
+  Mode, Daily Challenge, Living City, Archipelago). When a step ships,
+  replace its teaser card with a real portal/entry in the same grid — the
+  slot is already reserved visually. Challenge Mode (Step 1) should become a
+  third portal ("Path of the Storm-Chaser"?) rather than a buried menu item.
+- **Per-track progress on portals** comes from the same `Progress` model
+  (stars/bestScores keyed by level id) — leaderboard/streak chips from Step 2
+  can join the portal footer without layout changes.
+- **The game console is now user-resizable** (draggable divider, width
+  persisted in `localStorage` under `kubetopia-sidebar-w`). Any future
+  replay/spectate view should reuse this splitter rather than invent
+  another layout.
+- **The no-login guarantee is untouched**: the Gateway, campaign pages and
+  every mission remain fully playable signed-out (Principle 1).
+
+---
+
 *This document is the source of truth for Kubetopia's direction. Update it as
 steps ship — and keep the campaign sacred.*
