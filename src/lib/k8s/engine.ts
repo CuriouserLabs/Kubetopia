@@ -250,9 +250,17 @@ export function tick(cluster: Cluster) {
     }
   }
 
-  /* 2 — Scheduler */
-  for (const pod of cluster.pods) {
-    if (pod.phase !== "Pending") continue;
+  /* 2 — Scheduler. Critical workloads get first claim on free capacity
+     (mirrors pod priority): without this, a non-critical deployment that
+     scaled up earlier would permanently starve a critical app's replacement
+     pods after a rollback — e.g. level 4's analytics land-grab swallowing
+     the capacity freed by payments' own terminating pods. */
+  const isCritical = (p: K8sPod) =>
+    cluster.deployments.find((d) => d.name === p.owner)?.critical ? 0 : 1;
+  const pending = cluster.pods
+    .filter((p) => p.phase === "Pending")
+    .sort((a, b) => isCritical(a) - isCritical(b) || a.createdAtTick - b.createdAtTick);
+  for (const pod of pending) {
     const candidates = cluster.nodes
       .filter((n) => schedulable(cluster, pod, n))
       .sort((a, b) => {
