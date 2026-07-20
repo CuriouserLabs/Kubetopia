@@ -88,6 +88,7 @@ game saves live in a `kubetopia/{uid}` collection.
 | `npm run build` | Production build (all mission pages statically generated) |
 | `npm run start` | Serve the production build |
 | `npm run lint` | ESLint |
+| `npm test` | Mission completability suite: plays every mission headlessly, at both prompt and worst-case timing |
 | `npx tsx scripts/generate-brand-assets.tsx` | Regenerate the icons and social share card in `public/` |
 
 ## How the simulation works
@@ -165,6 +166,10 @@ to keep in mind, both learned the hard way:
   satisfy and the player is stuck forever.
 - Match commands with `ranCommand`, which normalises the `k` alias to `kubectl` — write your regex
   against `kubectl ...`.
+
+Then add the mission to the completability suite ([tests/missions.test.ts](tests/missions.test.ts))
+in **both** timing profiles and run `npm test` — the slow-player profile is what catches
+objectives that a later scripted event can render impossible.
 
 **Adding a `kubectl` command.** Extend the `switch` in
 [src/lib/k8s/kubectl.ts](src/lib/k8s/kubectl.ts) and, if needed, add a mutation helper in
