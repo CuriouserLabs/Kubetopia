@@ -242,7 +242,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ terminal: [] });
       return;
     }
-    if (trimmed === "help" || trimmed === "kubectl help" || trimmed === "kubectl --help") {
+    if (["help", "kubectl help", "kubectl --help", "k help", "k --help"].includes(trimmed)) {
       set({ terminal: [...terminal, { kind: "out", text: HELP_TEXT }] });
       return;
     }
