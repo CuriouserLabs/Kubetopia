@@ -1,10 +1,16 @@
 # Firestore security rules — Kubetopia campaign tracking & leaderboards
 
+> ✅ **Deployed (July 2026).** These rules are **live** on `kubequest-dd648`.
+> The canonical ruleset lives in the **KubeQuest repo** (`firestore.rules`) —
+> the blocks below were merged into it and deployed with
+> `firebase deploy --only firestore:rules`. This file is a reference copy;
+> update the KubeQuest repo and redeploy from there to make changes.
+
 > ⚠️ **The Firebase project `kubequest-dd648` is shared with KubeQuest.** There
-> is exactly one `firestore.rules` per project. **Do not deploy a rules file
-> from this repo standalone** — it would overwrite KubeQuest's rules. Instead,
-> **merge the `match` blocks below** into the project's existing ruleset
-> (managed alongside KubeQuest) and deploy from there.
+> is exactly one `firestore.rules` per project. **Never deploy a rules file
+> from this repo standalone** — it would overwrite KubeQuest's rules. Always
+> **merge the `match` blocks below** into the KubeQuest ruleset and deploy from
+> there.
 
 These rules back the collections introduced with campaign auth-gating:
 
