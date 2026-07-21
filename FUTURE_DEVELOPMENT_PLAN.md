@@ -25,10 +25,13 @@ beyond the cobblestone city — each district with its own flavor of trouble.
 
 The existing story campaign is **not replaced — it is promoted**: it becomes
 the canonical **introduction to the game**. New players learn the console, the
-town, and the cast by playing the campaign, **with no login required**, exactly
-as today. Students who never touch multiplayer still get the full learning
-value. Multiplayer is the endgame for players who want competition, community,
-and an endless stream of fresh incidents.
+town, and the cast by playing the **first mission of each campaign with no
+login required** — a free taster of what the game is like. To play the rest of
+the missions and have their progress, marks, times, stars and hint usage
+tracked (and feed the campaign leaderboards), players **sign in** (the same
+Firebase Auth shared with kubequest.org). Students who never touch multiplayer
+still get the full learning value. Multiplayer is the endgame for players who
+want competition, community, and an endless stream of fresh incidents.
 
 ### What this changes technically
 
@@ -81,11 +84,17 @@ Any AI agent (or human) implementing this plan **must**:
 
 1. **Preserve the current missions and story.** The existing campaign — the
    town, Mayor Beatrix, Old Sal, Kublet, the Cloud Queen, every scripted
-   mission — is the permanent, canonical introduction to the game. It must
-   remain playable **without login** and fully offline, exactly as it is
-   today: the entry point where learners get familiar with the game before
-   (or instead of) ever joining the multiplayer world. Refactors may move its
-   code; its content and its no-login guarantee are untouchable.
+   mission — is the permanent, canonical introduction to the game. Its content
+   and offline behavior are untouchable; refactors may move its code but never
+   change what it teaches.
+   **No-login scope (updated July 2026):** the **first mission of each
+   campaign** stays playable **without login** and fully offline — the free
+   taster that lets a newcomer feel the game before committing. Every mission
+   after the first now **requires sign-in**, so the player's progress, marks,
+   clear times, stars and hint usage are tracked against their account and can
+   feed the public campaign leaderboards. This is the one deliberate narrowing
+   of the original "whole campaign is no-login" guarantee; the taster mission
+   preserves its spirit (anyone can try the game, no account, no barrier).
 2. **Maintain the scalable, maintainable architecture and folder structure.**
    The layering that exists today is the contract:
    - `src/lib/k8s/` — pure simulation: no React, no network, deterministic;
@@ -138,6 +147,16 @@ incidents" — while everything still runs locally.*
 
 *Goal: the first online features — with a daily cadence instead of real-time,
 so the backend starts small.*
+
+> **Partially landed early (July 2026): campaign identity + tracking.** To
+> gate the campaigns behind sign-in, the profile/progress model and a
+> **campaign run-tracking + leaderboard data model** shipped ahead of the rest
+> of Step 2 (see §8). These campaign scores are **client-attested** for now —
+> there is no server replay verification yet, because the campaign is scripted
+> and non-competitive at the seed level. The **daily/city leaderboards below
+> keep their server-verified path**; when the challenge engine (Step 1) lands,
+> campaign runs can opt into the same replay verification. The **public campaign
+> leaderboard page** that reads these collections has now also shipped (see §8).
 
 - Player profiles in Firestore (`kubetopia/{uid}` grows: handle, avatar
   villager, stats, streaks). Handles unique and moderated; progress sync
@@ -204,7 +223,15 @@ multiplayer vision.*
 ## 5. Data model sketch (Firestore, evolves per step)
 
 ```
-kubetopia/{uid}                     # profile + campaign progress (exists today)
+kubetopia/{uid}                          # profile + campaign progress (exists today)
+
+# --- Campaign tracking + leaderboards (shipped July 2026, see §8) ---
+kubetopia_campaign_runs/{uid}/runs/{runId}   # one completed mission: score, stars,
+                                             #   timeTicks, hintsUsed, commandLog, completedAt
+kubetopia_leaderboards/{boardId}/entries/{uid}  # public aggregate standing per player
+                                             #   boardId = campaign_cka | campaign_ckad (more later)
+
+# --- Competitive online modes (later steps) ---
 kubetopia_runs/{runId}              # seed, uid, commandLog, score, verified
 kubetopia_daily/{yyyy-mm-dd}        # daily seed (released 00:00 UTC), fault mix
 kubetopia_daily/{date}/board/{uid}  # verified daily scores (leaderboard)
@@ -214,9 +241,20 @@ kubetopia_seasons/{seasonId}/…      # aggregated season standings
 presence (RTDB): /city/{uid}        # position, emote, lastSeen (ephemeral)
 ```
 
-Security rules follow the existing pattern: players write only their own
-documents; leaderboard writes go **only through the API** (verified runs);
-everything else is read-only to clients.
+**`kubetopia_leaderboards` is the generic board home for every mode.** Campaign
+uses `campaign_cka` / `campaign_ckad`; future modes add their own board ids
+(`daily_{date}`, `event_{id}`, …) under the same collection so the leaderboard
+UI is one component parameterized by board id. Each entry is **one aggregate
+document per player** (denormalised handle/photo), so a board renders with a
+single bounded `orderBy(...).limit(N)` — O(N) reads for the top N, never
+O(players). Run history is a **per-user subcollection** so ownership is the
+path.
+
+Security rules (see `docs/firestore-rules.md` — **merge into the shared
+kubequest-dd648 ruleset, never deploy standalone**): players read/write only
+their own profile and run history; **leaderboards are world-readable** (signed
+in or not) and each player may write only their own entry. Competitive-mode
+boards move to API-only writes once server replay verification lands.
 
 ## 6. Risks & open questions
 
@@ -261,8 +299,56 @@ shell was deliberately shaped to absorb the steps above.
   persisted in `localStorage` under `kubetopia-sidebar-w`). Any future
   replay/spectate view should reuse this splitter rather than invent
   another layout.
-- **The no-login guarantee is untouched**: the Gateway, campaign pages and
-  every mission remain fully playable signed-out (Principle 1).
+- **The no-login taster (updated July 2026)**: the Gateway, both campaign
+  pages and the **first mission of each campaign** remain fully playable
+  signed-out. Missions 2+ now require sign-in (Principle 1, updated scope).
+
+---
+
+## 8. Campaign auth-gating & run tracking (shipped July 2026)
+
+The requirement to make the campaigns sign-in-gated (first mission free) and to
+track per-mission performance for public leaderboards landed here. What changed:
+
+- **Sign-in gating.** `requiresAuth(level)` / `isFirstMission(level)` in
+  `src/lib/levels/index.ts` express the rule: mission 1 of a track is the free
+  taster, the rest need an account. Enforced in two places — the mission cards
+  (`MissionGrid`) show **"🔐 Sign in to play"** on locked missions, and the
+  play route (`GameView`) shows a full-screen **sign-in gate** when a locked
+  mission is opened directly by URL. The sim never starts behind the gate.
+- **Run tracking.** On every mission completion while signed in, `gameStore`
+  records a run via `src/lib/online/campaignRuns.ts`:
+  `kubetopia_campaign_runs/{uid}/runs/{runId}` gets an immutable record (score,
+  stars, in-sim `timeTicks`, `hintsUsed`, `commandLog`, `completedAt`), and the
+  player's aggregate standing is upserted to
+  `kubetopia_leaderboards/campaign_{track}/entries/{uid}`. Hint usage is counted
+  in the store (`hintsUsed`), and the progress model gained `bestTimes` and
+  `cleanClears` (merged across devices the same way `stars`/`bestScores` are).
+- **Layering.** New online capability lives in `src/lib/online/`
+  (`types.ts`, `leaderboard.ts` — a pure, server-reusable aggregator,
+  `campaignRuns.ts`), importing only the firebase client and type-only from the
+  store — the simulation and renderer are untouched (Principle 2).
+- **Fairness.** Rank on **in-simulation ticks**, never wall-clock (Risk §6).
+  `cleanClears` (missions beaten with zero hints) is the tie-breaker after
+  stars, and full per-run `hintsUsed` is kept for detail.
+
+- **Public leaderboard page (`/leaderboard`).** World-readable (signed in or
+  not), linked from the Gateway and campaign headers. A track toggle switches
+  between the CKA and CKAD boards; the **top three are a raised, gold-glowing
+  podium** (crown + medals + sheen) to make the top spots aspirational, and
+  ranks 4+ fall into a table. The signed-in player's own row is highlighted
+  wherever they land. Reads via `fetchCampaignBoard(track)` in
+  `src/lib/online/board.ts` — a single `orderBy('totalStars').limit(N)` fetch,
+  then the pure `compareStandings` comparator applies the full tiebreak order
+  (stars → clean clears → score → fastest in-sim time). One component
+  (`src/components/Leaderboard.tsx`) parameterized by board id, so future modes
+  reuse it unchanged.
+
+**Next:** surface a player's own rank/standing when they're outside the fetched
+top-N; add streaks and shareable result cards (Step 2 proper); and, once the
+challenge engine lands, move competitive boards to the server-verified write
+path. Handle/display-name **moderation** (Risk §6) should land before the board
+sees real traffic — entries currently show the raw Google display name.
 
 ---
 

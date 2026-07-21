@@ -58,8 +58,17 @@ export default function HomePage() {
       <div className="gamefront__stars" aria-hidden />
 
       <header className="gamefront__top">
-        <span className="gate__brand">☸️ Kubetopia</span>
-        <AuthButton />
+        <span className="gate__brand">
+          {/* Kubetopia's own blue mark (same asset as the favicon) — keeps the
+              brand consistent and distinct from KubeQuest's purple icon. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- tiny static brand icon */}
+          <img src="/icon.svg" alt="" className="gate__brand-icon" width={26} height={26} />
+          Kubetopia
+        </span>
+        <span className="gamefront__nav">
+          <Link href="/leaderboard" className="gamefront__navlink">🏆 Leaderboards</Link>
+          <AuthButton />
+        </span>
       </header>
 
       <section className="gate__hero">

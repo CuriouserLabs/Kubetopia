@@ -96,6 +96,21 @@ export function missionNumber(level: LevelDef): number {
   return levelsForTrack(trackOf(level)).findIndex((l) => l.id === level.id) + 1;
 }
 
+/** The first mission of each track is the free, no-login taster. */
+export function isFirstMission(level: LevelDef): boolean {
+  return missionNumber(level) === 1;
+}
+
+/**
+ * Every mission except the first in a track requires sign-in — so progress,
+ * marks, times and hint usage can be tracked against the player's account and
+ * feed the campaign leaderboards. The first mission stays playable signed-out
+ * (Principle 1's no-login taster).
+ */
+export function requiresAuth(level: LevelDef): boolean {
+  return !isFirstMission(level);
+}
+
 /**
  * A mission is unlocked when it's first in its track or the previous mission
  * in the same track has been completed. Tracks unlock independently.

@@ -8,6 +8,7 @@ import { applyYaml, ManifestError } from "@/lib/k8s/manifest";
 import { getLevel, levelsForTrack, trackOf } from "@/lib/levels";
 import type { CommandEntry, LevelDef, SpeakerId } from "@/lib/levels/types";
 import { saveCloudProgress } from "@/lib/firebase/progress";
+import { recordCampaignRun } from "@/lib/online/campaignRuns";
 
 export interface TerminalLine {
   kind: "cmd" | "out" | "err" | "sys";
@@ -29,6 +30,10 @@ export interface Progress {
   unlocked: number;
   bestScores: Record<number, number>;
   stars: Record<number, number>;
+  /** Fastest clear per level, in sim ticks (lower is better). */
+  bestTimes?: Record<number, number>;
+  /** Levels cleared at least once without using any hints. */
+  cleanClears?: Record<number, boolean>;
 }
 
 const PROGRESS_KEY = "kubequest-progress-v1";
@@ -91,6 +96,8 @@ interface GameState {
   timeBonus: number;
   paused: boolean;
   progress: Progress;
+  /** How many times the player asked for a hint this run (tracked per level). */
+  hintsUsed: number;
   /** Blueprint files available to apply/cat in the current level. */
   files: Record<string, string>;
   /** Open YAML editor modal, if any. */
@@ -124,6 +131,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   timeBonus: 0,
   paused: true,
   progress: loadProgress(),
+  hintsUsed: 0,
   files: {},
   editor: null,
 
@@ -152,6 +160,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       finalStars: 0,
       timeBonus: 0,
       paused: true, // unpaused when intro dialogs are dismissed
+      hintsUsed: 0,
       files: { ...(level.files ?? {}) },
       editor: null,
     });
@@ -210,8 +219,28 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       progress.bestScores = { ...progress.bestScores, [s.level.id]: Math.max(progress.bestScores[s.level.id] ?? 0, score) };
       progress.stars = { ...progress.stars, [s.level.id]: Math.max(progress.stars[s.level.id] ?? 0, finalStars) };
+      // Fastest clear (lower is better) and best-ever hint-free clear.
+      const prevBestTime = progress.bestTimes?.[s.level.id];
+      progress.bestTimes = {
+        ...progress.bestTimes,
+        [s.level.id]: prevBestTime === undefined ? cluster.tick : Math.min(prevBestTime, cluster.tick),
+      };
+      progress.cleanClears = {
+        ...progress.cleanClears,
+        [s.level.id]: (progress.cleanClears?.[s.level.id] ?? false) || s.hintsUsed === 0,
+      };
       saveProgress(progress);
       saveCloudProgress(progress); // no-op when signed out
+      // Track this attempt against the player's account + campaign leaderboard.
+      recordCampaignRun({
+        level: s.level,
+        score,
+        stars: finalStars,
+        timeTicks: cluster.tick,
+        hintsUsed: s.hintsUsed,
+        commandLog: s.commands,
+        progress,
+      }); // no-op when signed out
     }
 
     set({
@@ -249,6 +278,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (trimmed === "hint") {
       const next = s.level.objectives.find((o) => !s.completed.includes(o.id));
       set({
+        // Count hints even after all objectives are done — a hint is a hint;
+        // the leaderboard rewards clean, hint-free clears.
+        hintsUsed: s.hintsUsed + 1,
         terminal: [
           ...terminal,
           { kind: "sys", text: next ? `💡 ${next.hint}` : "💡 All objectives complete — enjoy the view!" },
