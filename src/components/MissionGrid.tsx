@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
-import { isLevelUnlocked, levelsForTrack, missionNumber } from "@/lib/levels";
+import { useEffect, useSyncExternalStore } from "react";
+import { isLevelUnlocked, levelsForTrack, missionNumber, requiresAuth } from "@/lib/levels";
 import type { TrackId } from "@/lib/levels/types";
+import { useAuthStore } from "@/store/authStore";
 import { useGameStore } from "@/store/gameStore";
 
 const noopSubscribe = () => () => {};
@@ -21,8 +22,14 @@ function useHydrated() {
 /** The mission cards for one campaign, plus a progress ribbon. */
 export default function MissionGrid({ track }: { track: TrackId }) {
   const progress = useGameStore((s) => s.progress);
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
+  const initAuth = useAuthStore((s) => s.init);
+  const signIn = useAuthStore((s) => s.signIn);
   const hydrated = useHydrated();
   const levels = levelsForTrack(track);
+
+  useEffect(() => initAuth(), [initAuth]);
 
   const starsEarned = hydrated
     ? levels.reduce((s, l) => s + (progress.stars[l.id] ?? 0), 0)
@@ -30,6 +37,10 @@ export default function MissionGrid({ track }: { track: TrackId }) {
   const cleared = hydrated
     ? levels.filter((l) => (progress.stars[l.id] ?? 0) > 0).length
     : 0;
+
+  // Only lock on auth once we actually know the player is signed out — never
+  // during SSR / first paint, and never while auth is still resolving.
+  const signedOut = hydrated && !authLoading && !user;
 
   return (
     <div className="missions">
@@ -41,14 +52,22 @@ export default function MissionGrid({ track }: { track: TrackId }) {
           ⭐ {starsEarned} / {levels.length * 3} stars
         </span>
       </div>
+      {signedOut && (
+        <p className="missions__signin-note">
+          🔓 Mission 1 is free to try. <button className="linklike" onClick={signIn}>Sign in</button> to
+          play the rest and track your marks, times and streaks.
+        </p>
+      )}
       <div className="levels-grid">
         {levels.map((level) => {
           const unlocked = !hydrated || isLevelUnlocked(level, progress);
+          const authLocked = signedOut && requiresAuth(level);
           const stars = hydrated ? (progress.stars[level.id] ?? 0) : 0;
           const best = hydrated ? progress.bestScores[level.id] : undefined;
           const n = missionNumber(level);
+          const locked = authLocked || !unlocked;
           return (
-            <div key={level.id} className={`level-card ${unlocked ? "" : "level-card--locked"}`}>
+            <div key={level.id} className={`level-card ${locked ? "level-card--locked" : ""}`}>
               <div className="level-card__badge">Mission {n}</div>
               <h3 className="level-card__name">{level.name}</h3>
               <p className="level-card__tagline">{level.tagline}</p>
@@ -64,7 +83,11 @@ export default function MissionGrid({ track }: { track: TrackId }) {
                   ))}
                   {best !== undefined && <span className="level-card__best">best {best}</span>}
                 </span>
-                {unlocked ? (
+                {authLocked ? (
+                  <button className="btn btn--sm level-card__signin" onClick={signIn}>
+                    🔐 Sign in to play
+                  </button>
+                ) : unlocked ? (
                   <Link href={`/play/${level.slug}`} className="btn btn--primary btn--sm">
                     Play ▸
                   </Link>

@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/store/gameStore";
+import { useAuthStore } from "@/store/authStore";
+import { getLevel, missionNumber, requiresAuth, trackOf } from "@/lib/levels";
 import HUD from "@/components/ui/HUD";
 import ObjectivesPanel from "@/components/ui/ObjectivesPanel";
 import Terminal from "@/components/ui/Terminal";
@@ -104,7 +107,65 @@ function useSidebarWidth() {
   return { width, dragging, handlers: { onPointerDown, onPointerMove, onPointerUp, onDoubleClick, onKeyDown } };
 }
 
+/**
+ * Sign-in gate. The first mission of each track is the free, no-login taster;
+ * every mission after it needs an account so progress, marks, times and hint
+ * usage are tracked and can feed the campaign leaderboards.
+ */
 export default function GameView({ levelId }: { levelId: number }) {
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
+  const initAuth = useAuthStore((s) => s.init);
+  useEffect(() => initAuth(), [initAuth]);
+
+  const level = getLevel(levelId);
+  const gated = !!level && requiresAuth(level);
+
+  // Don't flash the game (or the gate) until we know the sign-in state.
+  if (gated && authLoading) {
+    return <div className="scene-loading">Checking your KubeQuest pass… 🔑</div>;
+  }
+  if (gated && !user) {
+    return <MissionSignInGate levelId={levelId} />;
+  }
+  return <GamePlay levelId={levelId} />;
+}
+
+/** Full-screen prompt shown when a locked mission is opened signed-out. */
+function MissionSignInGate({ levelId }: { levelId: number }) {
+  const signIn = useAuthStore((s) => s.signIn);
+  const error = useAuthStore((s) => s.error);
+  const level = getLevel(levelId);
+  if (!level) return null;
+  const track = trackOf(level);
+  const n = missionNumber(level);
+
+  return (
+    <main className="gamefront mission-gate">
+      <div className="gamefront__stars" aria-hidden />
+      <div className="mission-gate__card">
+        <div className="mission-gate__icon" aria-hidden>🔐</div>
+        <p className="mission-gate__eyebrow">{track.toUpperCase()} · Mission {n}</p>
+        <h1 className="mission-gate__title">{level.name}</h1>
+        <p className="mission-gate__body">
+          Sign in to play this mission. Your marks, clear times, stars and hint
+          usage are saved to your KubeQuest account and feed the campaign
+          leaderboards — one sign-in works across kubequest.org too.
+        </p>
+        <button className="btn btn--primary" onClick={signIn}>
+          Sign in with Google
+        </button>
+        {error && <p className="mission-gate__error">{error}</p>}
+        <p className="mission-gate__hint">
+          Just browsing? <Link href={`/campaign/${track}`}>Mission 1 is free to play</Link> — no account needed.
+        </p>
+        <Link href={`/campaign/${track}`} className="mission-gate__back">⬅ Back to the campaign</Link>
+      </div>
+    </main>
+  );
+}
+
+function GamePlay({ levelId }: { levelId: number }) {
   const startLevel = useGameStore((s) => s.startLevel);
   const stepTick = useGameStore((s) => s.stepTick);
   const exitLevel = useGameStore((s) => s.exitLevel);

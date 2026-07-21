@@ -14,6 +14,8 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
     unlocked: Math.max(a.unlocked, b.unlocked),
     bestScores: { ...a.bestScores },
     stars: { ...a.stars },
+    bestTimes: { ...a.bestTimes },
+    cleanClears: { ...a.cleanClears },
   };
   for (const [k, v] of Object.entries(b.bestScores)) {
     const key = Number(k);
@@ -22,6 +24,17 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
   for (const [k, v] of Object.entries(b.stars)) {
     const key = Number(k);
     merged.stars[key] = Math.max(merged.stars[key] ?? 0, v);
+  }
+  // Fastest time wins (lower is better).
+  for (const [k, v] of Object.entries(b.bestTimes ?? {})) {
+    const key = Number(k);
+    const existing = merged.bestTimes![key];
+    merged.bestTimes![key] = existing === undefined ? v : Math.min(existing, v);
+  }
+  // A clean clear anywhere counts as a clean clear.
+  for (const [k, v] of Object.entries(b.cleanClears ?? {})) {
+    const key = Number(k);
+    merged.cleanClears![key] = merged.cleanClears![key] || v;
   }
   return merged;
 }
@@ -37,6 +50,8 @@ export async function loadCloudProgress(uid: string): Promise<Progress | null> {
       unlocked: typeof d.unlocked === "number" ? d.unlocked : 1,
       bestScores: d.bestScores ?? {},
       stars: d.stars ?? {},
+      bestTimes: d.bestTimes ?? {},
+      cleanClears: d.cleanClears ?? {},
     };
   } catch {
     return null; // offline / rules not deployed yet — play continues locally
