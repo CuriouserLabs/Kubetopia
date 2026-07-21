@@ -51,7 +51,10 @@ export default async function CampaignPage({ params }: Props) {
       <div className="gamefront__stars" aria-hidden />
       <header className="gamefront__top">
         <Link href="/" className="gamefront__back">⬅ The Gateway</Link>
-        <AuthButton />
+        <span className="gamefront__nav">
+          <Link href="/leaderboard" className="gamefront__navlink">🏆 Leaderboards</Link>
+          <AuthButton />
+        </span>
       </header>
 
       <section className="campaign__hero">

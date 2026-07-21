@@ -59,7 +59,10 @@ export default function HomePage() {
 
       <header className="gamefront__top">
         <span className="gate__brand">☸️ Kubetopia</span>
-        <AuthButton />
+        <span className="gamefront__nav">
+          <Link href="/leaderboard" className="gamefront__navlink">🏆 Leaderboards</Link>
+          <AuthButton />
+        </span>
       </header>
 
       <section className="gate__hero">

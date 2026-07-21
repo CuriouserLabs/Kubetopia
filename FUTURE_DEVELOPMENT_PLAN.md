@@ -155,9 +155,8 @@ so the backend starts small.*
 > there is no server replay verification yet, because the campaign is scripted
 > and non-competitive at the seed level. The **daily/city leaderboards below
 > keep their server-verified path**; when the challenge engine (Step 1) lands,
-> campaign runs can opt into the same replay verification. The next immediate
-> deliverable is the **public campaign leaderboard page** that reads the
-> collections in §8.
+> campaign runs can opt into the same replay verification. The **public campaign
+> leaderboard page** that reads these collections has now also shipped (see §8).
 
 - Player profiles in Firestore (`kubetopia/{uid}` grows: handle, avatar
   villager, stats, streaks). Handles unique and moderated; progress sync
@@ -330,14 +329,26 @@ track per-mission performance for public leaderboards landed here. What changed:
   `campaignRuns.ts`), importing only the firebase client and type-only from the
   store — the simulation and renderer are untouched (Principle 2).
 - **Fairness.** Rank on **in-simulation ticks**, never wall-clock (Risk §6).
-  `cleanClears` (missions beaten with zero hints) is the intended tie-breaker /
-  badge metric, and full per-run `hintsUsed` is kept for detail.
+  `cleanClears` (missions beaten with zero hints) is the tie-breaker after
+  stars, and full per-run `hintsUsed` is kept for detail.
 
-**Next (deliberately deferred):** the **public campaign leaderboard page** — a
-new landing-page section / route reading `kubetopia_leaderboards/campaign_cka`
-and `campaign_ckad`, public to everyone. It's the immediate next conversation
-and the first consumer of the data model above; the generic board id scheme
-means future modes reuse the same UI.
+- **Public leaderboard page (`/leaderboard`).** World-readable (signed in or
+  not), linked from the Gateway and campaign headers. A track toggle switches
+  between the CKA and CKAD boards; the **top three are a raised, gold-glowing
+  podium** (crown + medals + sheen) to make the top spots aspirational, and
+  ranks 4+ fall into a table. The signed-in player's own row is highlighted
+  wherever they land. Reads via `fetchCampaignBoard(track)` in
+  `src/lib/online/board.ts` — a single `orderBy('totalStars').limit(N)` fetch,
+  then the pure `compareStandings` comparator applies the full tiebreak order
+  (stars → clean clears → score → fastest in-sim time). One component
+  (`src/components/Leaderboard.tsx`) parameterized by board id, so future modes
+  reuse it unchanged.
+
+**Next:** surface a player's own rank/standing when they're outside the fetched
+top-N; add streaks and shareable result cards (Step 2 proper); and, once the
+challenge engine lands, move competitive boards to the server-verified write
+path. Handle/display-name **moderation** (Risk §6) should land before the board
+sees real traffic — entries currently show the raw Google display name.
 
 ---
 
