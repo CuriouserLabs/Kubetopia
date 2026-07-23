@@ -789,7 +789,11 @@ code {
 
 /* podium */
 .lb__podium {
-  list-style: none; margin: 0 0 1.6rem; padding: 0;
+  list-style: none; margin: 0 0 1.6rem;
+  /* Top padding (not margin) so the gap below the tabs is reliable in both
+     states — signed-out (CTA present) and signed-in (no CTA) — and clears the
+     16px-raised champion card. Padding doesn't collapse with the tabs' margin. */
+  padding: 1.75rem 0 0;
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9rem; align-items: end;
 }
 .lb__podium-slot {
