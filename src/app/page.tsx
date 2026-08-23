@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+const BLOG_URL = "https://geethsandaru.com/blogs/kubetopia-kubernetes-simulation-engine";
+const BLOG_TITLE = "Simulating Kubernetes From Scratch: Inside Kubetopia’s Cluster Engine";
+
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "VideoGame",
@@ -23,6 +26,12 @@ const jsonLd = {
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   educationalUse: "Kubernetes administration and application development practice",
   isPartOf: { "@type": "WebSite", name: "KubeQuest", url: "https://kubequest.org" },
+  subjectOf: {
+    "@type": "BlogPosting",
+    headline: BLOG_TITLE,
+    url: BLOG_URL,
+    author: { "@type": "Person", name: "Geeth Sandaru" },
+  },
 };
 
 const ROADMAP = [
@@ -46,6 +55,14 @@ const ROADMAP = [
     name: "The Archipelago",
     text: "New districts beyond the city: the Harbor, the Observatory, the Frozen Datacenter…",
   },
+];
+
+/** Body of the fake `kubectl explain` printed on the engine write-up card. */
+const ENGINE_FIELDS = [
+  { name: "controlLoop", text: "reconcile → schedule → advance → reap, once every tick" },
+  { name: "scheduler", text: "drops unschedulable nodes, scores the rest by free CPU" },
+  { name: "podLifecycle", text: "Pending, ContainerCreating, CrashLoopBackOff, evictions" },
+  { name: "kubectl", text: "a hand-written parser: get, describe, apply, rollout, drain…" },
 ];
 
 export default function HomePage() {
@@ -127,6 +144,43 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="gate__engine" aria-labelledby="engine-heading">
+        <h2 id="engine-heading" className="gamefront__h2">Under the hood</h2>
+        <p className="gate__engine-note">
+          No cluster is hiding in a datacenter somewhere — every node, pod and error message is simulated.
+        </p>
+        <a className="engine-card" href={BLOG_URL} rel="noopener noreferrer" target="_blank">
+          <span className="engine-card__bar" aria-hidden>
+            <span className="terminal__dot" style={{ background: "#f87171" }} />
+            <span className="terminal__dot" style={{ background: "#fbbf24" }} />
+            <span className="terminal__dot" style={{ background: "#34d399" }} />
+            <span className="terminal__title">kubetopia — engine internals</span>
+          </span>
+          <span className="engine-card__body">
+            <span className="engine-card__line engine-card__line--cmd">$ kubectl explain kubetopia.engine</span>
+            <span className="engine-card__line engine-card__line--meta">KIND:     SimulationEngine</span>
+            <span className="engine-card__line engine-card__line--meta">VERSION:  kubetopia/v1</span>
+            <span className="engine-card__line engine-card__line--desc">
+              There is no Kubernetes behind this game. The control loop, the scheduler, the pod
+              lifecycle and the console are all hand-written TypeScript — one tick a second, forever
+              nudging the cluster from what it is toward what you asked for.
+            </span>
+            <span className="engine-card__line engine-card__line--meta">FIELDS:</span>
+            {ENGINE_FIELDS.map((f) => (
+              <span key={f.name} className="engine-card__field">
+                <span className="engine-card__field-name">{f.name}</span>
+                <span className="engine-card__field-text">{f.text}</span>
+              </span>
+            ))}
+          </span>
+          <span className="engine-card__foot">
+            <span className="engine-card__prompt">$</span>
+            <span className="engine-card__cta">read “{BLOG_TITLE}”</span>
+            <span className="engine-card__host">geethsandaru.com · 15 min ↗</span>
+          </span>
+        </a>
       </section>
 
       <section className="gate__guild">
