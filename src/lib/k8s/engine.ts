@@ -19,10 +19,16 @@ import type {
 /* Construction helpers (used by level definitions)                    */
 /* ------------------------------------------------------------------ */
 
-let uidCounter = 0;
-const uid = () => `u${(uidCounter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+/** Random lowercase hex string from the Web Crypto API (browser and Node alike). */
+function randomSuffix(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(Math.ceil(length / 2)));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("").slice(0, length);
+}
 
-const podSuffix = () => Math.random().toString(36).slice(2, 7);
+let uidCounter = 0;
+const uid = () => `u${(uidCounter++).toString(36)}${randomSuffix(4)}`;
+
+const podSuffix = () => randomSuffix(5);
 
 export function makeNode(
   name: string,
