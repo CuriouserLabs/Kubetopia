@@ -31,7 +31,7 @@ const ckad4: LevelDef = {
   ],
   outro:
     "Records 5.1 settles in like it was always there: allergies load, charts fly, the ransom-note font is gone forever. Dr. Iris frames a printout of your terminal history and titles it 'Anatomy of a Rollback'. Old Sal mutters 'shipped, burned, recovered, reshipped — that's the whole job, kid.'",
-  parTicks: 250,
+  parTicks: 200,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(

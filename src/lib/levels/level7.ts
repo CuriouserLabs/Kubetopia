@@ -32,7 +32,7 @@ const level7: LevelDef = {
   ],
   outro:
     "The Cloud Queen walks the cobblestones, taps the Welcome Hall doors with her sceptre, and declares Kubetopia a Certified Well-Architected Town — the first in the archipelago. In her speech she says only: 'Your pods are not merely Running. They are Ready.' Elowen cries. The intern gets a sixth coffee. You get the royal seal on your console.",
-  parTicks: 240,
+  parTicks: 200,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(

@@ -3,8 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/store/gameStore";
 
+/**
+ * Tab completion: extend the last word to the longest unambiguous match among
+ * `names`. Works after "deployment/" and "container=" prefixes too.
+ */
+function completeLastWord(input: string, names: string[]): string | null {
+  const m = input.match(/^(.*?)([^\s/=]*)$/);
+  if (!m || m[2] === "") return null;
+  const hits = names.filter((n) => n.startsWith(m[2]));
+  if (hits.length === 0) return null;
+  let common = hits[0];
+  for (const h of hits) while (!h.startsWith(common)) common = common.slice(0, -1);
+  return common.length > m[2].length ? m[1] + common : null;
+}
+
 export default function Terminal() {
   const terminal = useGameStore((s) => s.terminal);
+  const cluster = useGameStore((s) => s.cluster);
+  const files = useGameStore((s) => s.files);
   const runCommand = useGameStore((s) => s.runCommand);
   const dialogCount = useGameStore((s) => s.dialogs.length);
   const editorOpen = useGameStore((s) => s.editor !== null);
@@ -39,7 +55,22 @@ export default function Terminal() {
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") submit();
-    else if (e.key === "ArrowUp") {
+    else if (e.key === "Tab") {
+      // Pod names end in random characters — nobody should have to retype them.
+      e.preventDefault();
+      if (!cluster) return;
+      const names = [
+        ...cluster.pods.map((p) => p.name),
+        ...cluster.deployments.map((d) => d.name),
+        ...cluster.nodes.map((n) => n.name),
+        ...cluster.services.map((s) => s.name),
+        ...cluster.configMaps.map((c) => c.name),
+        ...cluster.secrets.map((s) => s.name),
+        ...Object.keys(files),
+      ];
+      const completed = completeLastWord(input, names);
+      if (completed) setInput(completed);
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (history.length === 0) return;
       const idx = histIdx === -1 ? history.length - 1 : Math.max(0, histIdx - 1);

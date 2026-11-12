@@ -36,7 +36,7 @@ const level4: LevelDef = {
   ],
   outro:
     "Payments hum, the analytics team got their (reasonably sized) dashboards, and the Grand Bazaar's first day closes with record sales. The whiteboards have been wiped. For now.",
-  parTicks: 200,
+  parTicks: 170,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(

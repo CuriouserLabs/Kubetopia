@@ -22,6 +22,8 @@ export default function HUD() {
 
   const mins = Math.floor(cluster.tick / 60);
   const secs = cluster.tick % 60;
+  const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toString().padStart(2, "0")}`;
+  const overPar = cluster.tick > level.parTicks;
 
   return (
     <div className="hud">
@@ -37,13 +39,17 @@ export default function HUD() {
         <span className="hud__level-name">{level.name}</span>
       </div>
       <div className="hud__stats">
-        <div className="hud__stat" title="Mission clock">
+        <div
+          className="hud__stat"
+          title={`Mission clock. Finish by ${clock(level.parTicks)} for 3 stars, by ${clock(Math.floor(level.parTicks * 1.6))} for 2. The clock stops during story pop-ups and while the YAML editor is open.`}
+        >
           ⏱ {mins}:{secs.toString().padStart(2, "0")}
+          <span style={{ opacity: 0.7 }}> / {overPar ? "★★ " : "★★★ "}{clock(overPar ? Math.floor(level.parTicks * 1.6) : level.parTicks)}</span>
         </div>
         <div className="hud__stat" title="Score">
           ⭐ {score}
         </div>
-        <div className="hud__stat hud__happiness" title="Town happiness — keeps services serving to keep it up">
+        <div className="hud__stat hud__happiness" title="Town happiness — follows how many of your Services are actually serving. It sets the town's mood; stars come from the clock.">
           <span className="hud__face">{happinessFace(happiness)}</span>
           <div className="hud__meter">
             <div

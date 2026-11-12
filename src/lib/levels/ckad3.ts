@@ -32,7 +32,7 @@ const ckad3: LevelDef = {
   ],
   outro:
     "The monitors bloom back to life — sixty heartbeats a minute, sixty frames a second. Dr. Iris tapes a card to the ICU door: 'Running ≠ Ready. Check the probe port.' Old Sal nods once, which from him is a standing ovation.",
-  parTicks: 230,
+  parTicks: 200,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(

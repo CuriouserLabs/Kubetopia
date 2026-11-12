@@ -105,7 +105,7 @@ const level6: LevelDef = {
   ],
   outro:
     "The Grand Library opens with a ribbon (and a rollback plan). Elowen frames the corrected YAML and hangs it in the reading room, under a plaque: 'The selector must match the labels. — ancient proverb'. The catalog hums, the shelves fill, and Kubetopia becomes a town of readers.",
-  parTicks: 220,
+  parTicks: 180,
   files: {
     "library.yaml": LIBRARY_YAML,
     "catalog.yaml": CATALOG_YAML,

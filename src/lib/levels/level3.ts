@@ -41,7 +41,7 @@ const level3: LevelDef = {
   ],
   outro:
     "Power restored, seagull relocated to a nice farm upstate, and the townsfolk slept through the whole thing — which is the highest compliment an SRE can receive.",
-  parTicks: 180,
+  parTicks: 140,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(
