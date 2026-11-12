@@ -28,7 +28,7 @@ const level2: LevelDef = {
     },
     {
       speaker: "mentor",
-      text: "Hint from an old-timer: when healthy pods get no traffic, compare the Service's selector with the pods' labels. `kubectl get svc` and `kubectl get pods -o wide` are your friends.",
+      text: "Hint from an old-timer: when healthy pods get no traffic, compare the Service's selector with the pods' labels. `kubectl describe svc ticket-svc` and `kubectl get pods --show-labels` are your friends.",
     },
   ],
   outro:
@@ -56,7 +56,7 @@ const level2: LevelDef = {
     };
     c.deployments.push(
       makeDeployment("ticket-shop", { replicas: 2, image: "ticket-shop:3.2" }),
-      makeDeployment("poster-maker", { replicas: 1, image: "poster-maker:2.1" }),
+      makeDeployment("poster-maker", { replicas: 1, image: "poster-maker:2.1", containerName: "poster-maker" }),
       makeDeployment("band-website", { replicas: 2, image: "band-website:1.0" })
     );
     c.services.push(
@@ -74,8 +74,8 @@ const level2: LevelDef = {
       description:
         "Ticket pods are Running but the site is dead. Inspect the services and compare selectors against pod labels.",
       points: 150,
-      hint: "Run `kubectl get svc` — look hard at the SELECTOR column for ticket-svc, then check pod labels with `kubectl get pods -o wide` or `kubectl describe pod`.",
-      check: (ctx) => ranCommand(ctx, /kubectl\s+(get|describe)\s+(svc|service|services)\b/),
+      hint: "Run `kubectl describe svc ticket-svc` — its Endpoints are empty. Compare its Selector with the pods' labels from `kubectl get pods --show-labels`.",
+      check: (ctx) => ranCommand(ctx, /kubectl\s+(get|describe)\s+(svc|service|services|ep|endpoints)\b/),
     },
     {
       id: "fix-selector",

@@ -6,15 +6,20 @@
 
 import {
   addEvent,
+  configErrorMessage,
+  containerNameOf,
+  listenPortOf,
   livePodsOf,
   nodeUsage,
+  podIP,
   podStartupIssue,
   readyPodsOf,
   rolloutDeployment,
+  schedulingFailureMessage,
   terminatePod,
 } from "./engine";
-import { configMapToYaml, deploymentToYaml, secretToYaml, serviceToYaml } from "./manifest";
-import type { Cluster, K8sPod } from "./types";
+import { configMapToYaml, deploymentToYaml, envVarName, secretToYaml, serviceToYaml } from "./manifest";
+import type { Cluster, K8sPod, K8sService } from "./types";
 
 /** Request to open the YAML editor modal (kubectl edit / apply -f). */
 export interface EditorRequest {
@@ -57,6 +62,58 @@ function podStatus(p: K8sPod): string {
   return p.phase;
 }
 
+/* ------------------------- argument parsing -------------------------- */
+
+/** Flags that take a value (`-o wide`, `--replicas 3`, `--replicas=3`). */
+const VALUE_FLAGS = new Set([
+  "-n", "--namespace", "-o", "--output", "-l", "--selector", "-f", "--filename",
+  "-p", "--patch", "--replicas", "--tail", "-c", "--container", "--type",
+  "--grace-period", "--timeout", "--sort-by",
+]);
+
+interface ParsedArgs {
+  /** The verb first, then every non-flag word in the order it was typed. */
+  args: string[];
+  /** Flags by name: `--replicas=3` and `--replicas 3` both give {"--replicas": "3"}. */
+  flags: Record<string, string>;
+}
+
+/**
+ * Real kubectl accepts flags anywhere (`kubectl scale --replicas=3 deploy/web`,
+ * `kubectl -n default get pods`). Split the words into positionals and flags
+ * so every command below can simply read args[1], args[2], ...
+ */
+function parseArgs(tokens: string[]): ParsedArgs {
+  const args: string[] = [];
+  const flags: Record<string, string> = {};
+  const verb = tokens.find((t, i) => !t.startsWith("-") && !VALUE_FLAGS.has(tokens[i - 1] ?? ""));
+  // For `logs`, -f means --follow and -p means --previous: no value follows.
+  const takesValue = (flag: string) =>
+    VALUE_FLAGS.has(flag) && !(verb === "logs" && (flag === "-f" || flag === "-p"));
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (!t.startsWith("-")) {
+      args.push(t);
+      continue;
+    }
+    const eq = t.indexOf("=");
+    if (eq > 0) {
+      flags[t.slice(0, eq)] = t.slice(eq + 1);
+    } else if (takesValue(t)) {
+      // A patch body is JSON and may contain spaces: it runs to the end of the line.
+      if (t === "-p" || t === "--patch") {
+        flags[t] = tokens.slice(i + 1).join(" ");
+        break;
+      }
+      flags[t] = tokens[i + 1] ?? "";
+      i++;
+    } else {
+      flags[t] = "true";
+    }
+  }
+  return { args, flags };
+}
+
 /* ---------------------------- resolvers ----------------------------- */
 
 const POD_ALIASES = ["pod", "pods", "po"];
@@ -65,6 +122,7 @@ const DEPLOY_ALIASES = ["deployment", "deployments", "deploy"];
 const SVC_ALIASES = ["service", "services", "svc"];
 const CM_ALIASES = ["configmap", "configmaps", "cm"];
 const SECRET_ALIASES = ["secret", "secrets"];
+const EP_ALIASES = ["endpoints", "ep"];
 
 /** Splits "deployment/web" or ("deployment", "web") into kind + name. */
 function kindAndName(args: string[]): { kind?: string; name?: string; rest: string[] } {
@@ -81,7 +139,8 @@ function kindAndName(args: string[]): { kind?: string; name?: string; rest: stri
 function getNodes(c: Cluster): CmdResult {
   return out(
     table(
-      ["NAME", "STATUS", "ROLES", "CPU-USE", "MEM-USE"],
+      // Requests, not live usage: the scheduler only ever looks at requests.
+      ["NAME", "STATUS", "ROLES", "CPU-REQUESTS", "MEM-REQUESTS"],
       c.nodes.map((n) => {
         const u = nodeUsage(c, n.name);
         const status = n.status === "Ready"
@@ -99,11 +158,25 @@ function getNodes(c: Cluster): CmdResult {
   );
 }
 
-function getPods(c: Cluster, wide: boolean): CmdResult {
-  if (c.pods.length === 0) return out("No resources found in default namespace.");
+interface PodListOptions {
+  wide?: boolean;
+  showLabels?: boolean;
+  /** `-l app=web` — only the `app` label exists in Kubetopia. */
+  selector?: string;
+}
+
+function getPods(c: Cluster, opts: PodListOptions = {}): CmdResult {
+  let pods = c.pods;
+  if (opts.selector !== undefined) {
+    const m = opts.selector.match(/^app=+(.+)$/);
+    if (!m) return err(`error: unsupported selector "${opts.selector}" — Kubetopia pods only carry the "app" label (e.g. -l app=web)`);
+    pods = pods.filter((p) => p.labels.app === m[1]);
+  }
+  if (pods.length === 0) return out("No resources found in default namespace.");
   const headers = ["NAME", "READY", "STATUS", "RESTARTS", "AGE"];
-  if (wide) headers.push("NODE", "IMAGE");
-  const rows = c.pods
+  if (opts.wide) headers.push("IP", "NODE", "IMAGE");
+  if (opts.showLabels) headers.push("LABELS");
+  const rows = pods
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => {
@@ -114,7 +187,8 @@ function getPods(c: Cluster, wide: boolean): CmdResult {
         String(p.restarts),
         age(c, p.createdAtTick),
       ];
-      if (wide) row.push(p.nodeName ?? "<none>", p.image);
+      if (opts.wide) row.push(podIP(c, p), p.nodeName ?? "<none>", p.image);
+      if (opts.showLabels) row.push(`app=${p.labels.app ?? "<none>"}`);
       return row;
     });
   return out(table(headers, rows));
@@ -155,6 +229,75 @@ function getServices(c: Cluster): CmdResult {
       })
     )
   );
+}
+
+/** Ready pods selected by a service, as `ip:targetPort` (what `get endpoints` prints). */
+function endpointsOf(c: Cluster, s: K8sService): string[] {
+  return c.pods
+    .filter((p) => p.labels.app === s.selectorApp && p.ready)
+    .map((p) => `${podIP(c, p)}:${s.targetPort ?? 8080}`);
+}
+
+function getEndpoints(c: Cluster): CmdResult {
+  if (c.services.length === 0) return out("No resources found in default namespace.");
+  return out(
+    table(
+      ["NAME", "ENDPOINTS"],
+      c.services.map((s) => {
+        const eps = endpointsOf(c, s);
+        return [s.name, eps.length > 0 ? eps.join(",") : "<none>"];
+      })
+    )
+  );
+}
+
+function describeService(c: Cluster, name: string): CmdResult {
+  const s = c.services.find((x) => x.name === name);
+  if (!s) return err(`Error from server (NotFound): services "${name}" not found`);
+  const eps = endpointsOf(c, s);
+  const targetPort = s.targetPort ?? 8080;
+  const lines = [
+    `Name:         ${s.name}`,
+    `Namespace:    default`,
+    `Selector:     app=${s.selectorApp}`,
+    `Type:         ClusterIP`,
+    `Port:         ${s.port}/TCP`,
+    `TargetPort:   ${targetPort}/TCP`,
+    `Endpoints:    ${eps.length > 0 ? eps.join(",") : "<none>"}`,
+  ];
+  const labelled = c.pods.filter((p) => p.labels.app === s.selectorApp && p.phase !== "Terminating");
+  const backend = c.deployments.find((d) => d.app === s.selectorApp);
+  if (labelled.length === 0) {
+    lines.push("", `Warning: no pod carries the label app=${s.selectorApp}. Compare this selector with \`kubectl get pods --show-labels\`.`);
+  } else if (eps.length === 0) {
+    lines.push("", `Warning: ${labelled.length} pod(s) match the selector but none is Ready — only Ready pods become endpoints.`);
+  } else if (backend && listenPortOf(c, backend) !== targetPort) {
+    lines.push("", `Warning: targetPort ${targetPort} is not the port the app listens on (${listenPortOf(c, backend)}) — connections will be refused.`);
+  }
+  return out(lines.join("\n"));
+}
+
+/** `kubectl get <kind> <name> -o yaml` for the kinds the YAML editor understands. */
+function getYaml(c: Cluster, kind: string, name: string | undefined): CmdResult {
+  if (!name) return err(`error: name a single resource for -o yaml, e.g. "kubectl get ${kind} <name> -o yaml"`);
+  if (DEPLOY_ALIASES.includes(kind)) {
+    const d = c.deployments.find((x) => x.name === name);
+    return d ? out(deploymentToYaml(d)) : err(`Error from server (NotFound): deployments "${name}" not found`);
+  }
+  if (SVC_ALIASES.includes(kind)) {
+    const svc = c.services.find((x) => x.name === name);
+    return svc ? out(serviceToYaml(svc)) : err(`Error from server (NotFound): services "${name}" not found`);
+  }
+  if (CM_ALIASES.includes(kind)) {
+    const cm = c.configMaps.find((x) => x.name === name);
+    return cm ? out(configMapToYaml(cm)) : err(`Error from server (NotFound): configmaps "${name}" not found`);
+  }
+  if (SECRET_ALIASES.includes(kind)) {
+    const sec = c.secrets.find((x) => x.name === name);
+    // Authentic view: values base64-ENCODED (not encrypted) under data:.
+    return sec ? out(secretToYaml(sec, true)) : err(`Error from server (NotFound): secrets "${name}" not found`);
+  }
+  return err(`error: -o yaml is only simulated for deployments, services, configmaps and secrets — try "kubectl describe ${kind} ${name}"`);
 }
 
 function getConfigMaps(c: Cluster): CmdResult {
@@ -222,22 +365,37 @@ function describePod(c: Cluster, name: string): CmdResult {
   const p = c.pods.find((x) => x.name === name);
   if (!p) return err(`Error from server (NotFound): pods "${name}" not found`);
   const image = c.registry[p.image];
+  const owner = c.deployments.find((d) => d.name === p.owner);
   const lines = [
     `Name:         ${p.name}`,
     `Node:         ${p.nodeName ?? "<none>"}`,
+    `IP:           ${podIP(c, p)}`,
     `Status:       ${podStatus(p)}`,
     `Ready:        ${p.ready}`,
     `Restarts:     ${p.restarts}`,
+    `Container:    ${owner ? containerNameOf(owner) : "<none>"}`,
     `Image:        ${p.image}`,
     `Requests:     cpu=${p.cpu}m, memory=${p.memory}Mi`,
     `Labels:       app=${p.labels.app ?? "<none>"}`,
     `Controlled By: Deployment/${p.owner ?? "<none>"}`,
-    ``,
-    `Conditions:`,
-    `  Ready: ${p.ready}`,
-    ``,
-    `Recent events for this pod:`,
   ];
+  if (owner?.probePort !== undefined) {
+    lines.push(`Readiness:    http-get http://:${owner.probePort}/healthz`);
+  }
+  if (owner?.configRef || owner?.secretRef) {
+    lines.push(`Environment:`);
+    if (owner.configRef) {
+      lines.push(
+        `  ${envVarName(owner.configRef.key)}:  <set to the key '${owner.configRef.key}' of config map '${owner.configRef.name}'>  Optional: ${!!owner.configRef.optional}`
+      );
+    }
+    if (owner.secretRef) {
+      lines.push(
+        `  ${envVarName(owner.secretRef.key)}:  <set to the key '${owner.secretRef.key}' in secret '${owner.secretRef.name}'>  Optional: ${!!owner.secretRef.optional}`
+      );
+    }
+  }
+  lines.push(``, `Conditions:`, `  Ready: ${p.ready}`, ``, `Recent events for this pod:`);
   const events = c.events.filter((e) => e.object === `pod/${p.name}`).slice(-6);
   if (events.length === 0) lines.push("  <none>");
   for (const e of events) lines.push(`  ${e.type}  ${e.message}`);
@@ -248,29 +406,22 @@ function describePod(c: Cluster, name: string): CmdResult {
     lines.push("", "Warning: container keeps crashing shortly after start. Check `kubectl logs`.");
   }
   if (p.phase === "Pending") {
-    lines.push("", "Warning: pod is unschedulable. Check node capacity and cordons.");
+    lines.push("", `Warning  FailedScheduling  ${schedulingFailureMessage(c, p)}`);
   }
   const issue = podStartupIssue(c, p.owner);
-  if (issue.configMissing) {
+  const blocked = configErrorMessage(issue);
+  if (p.phase === "CreateContainerConfigError" && blocked) {
     lines.push(
       "",
-      `Warning: container requires config key "${issue.configMissing.key}" from ConfigMap "${issue.configMissing.name}", which is missing.`,
-      `Check \`kubectl describe configmap ${issue.configMissing.name}\`.`
-    );
-  }
-  if (issue.secretMissing) {
-    lines.push(
-      "",
-      `Warning: container requires key "${issue.secretMissing.key}" from Secret "${issue.secretMissing.name}", which is missing.`,
-      `Check \`kubectl get secrets\` — does that secret (and that key) exist?`
+      `Warning  Failed  Error: ${blocked}`,
+      "The container cannot be created until that reference resolves: fix the name/key in the Deployment's env, or create the missing ConfigMap/Secret/key."
     );
   }
   if (issue.probeBroken && p.phase === "Running") {
-    const owner = c.deployments.find((d) => d.name === p.owner);
     lines.push(
       "",
-      `Warning: Readiness probe failed: Get "http://pod:${owner?.probePort}/healthz": connection refused.`,
-      `The container listens on port ${owner?.containerPort ?? 8080} — compare with the probe port in the deployment spec.`
+      `Warning  Unhealthy  Readiness probe failed: Get "http://${podIP(c, p)}:${owner?.probePort}/healthz": dial tcp ${podIP(c, p)}:${owner?.probePort}: connect: connection refused`,
+      "Nothing answers on the probed port. Check which port the app really listens on (its logs say) and point readinessProbe.httpGet.port at it."
     );
   }
   return out(lines.join("\n"));
@@ -286,9 +437,18 @@ function describeNode(c: Cluster, name: string): CmdResult {
       `Name:               ${n.name}`,
       `Roles:              ${n.roles}`,
       `Status:             ${n.status}`,
+      `Taints:             ${
+        [
+          n.roles === "control-plane" ? "node-role.kubernetes.io/control-plane:NoSchedule" : "",
+          n.status !== "Ready" ? "node.kubernetes.io/unreachable:NoExecute" : "",
+          n.cordoned ? "node.kubernetes.io/unschedulable:NoSchedule" : "",
+        ]
+          .filter(Boolean)
+          .join(", ") || "<none>"
+      }`,
       `Unschedulable:      ${n.cordoned}`,
       `Allocatable:        cpu=${n.cpuCapacity}m, memory=${n.memCapacity}Mi`,
-      `Allocated:          cpu=${u.cpu}m, memory=${u.mem}Mi`,
+      `Allocated requests: cpu=${u.cpu}m, memory=${u.mem}Mi`,
       ``,
       `Pods on this node (${pods.length}):`,
       ...pods.map((p) => `  ${p.name}  ${podStatus(p)}`),
@@ -303,6 +463,8 @@ function describeDeployment(c: Cluster, name: string): CmdResult {
     [
       `Name:                 ${d.name}`,
       `Replicas:             ${d.replicas} desired | ${livePodsOf(c, d.name).length} total | ${readyPodsOf(c, d.name).length} ready`,
+      `StrategyType:         Recreate`,
+      `Container:            ${containerNameOf(d)}`,
       `Image:                ${d.image}`,
       d.previousImage ? `Previous image:       ${d.previousImage}` : ``,
       `Pod requests:         cpu=${d.cpuPerPod}m, memory=${d.memPerPod}Mi`,
@@ -324,24 +486,52 @@ export function runKubectl(
   if (tokens[0] !== "kubectl" && tokens[0] !== "k") {
     return err(`command not found: ${tokens[0]}. This console speaks kubectl (try "help").`);
   }
-  const args = tokens.slice(1).filter((t) => t !== "-n" && t !== "default" && t !== "--namespace");
+  const { args, flags } = parseArgs(tokens.slice(1));
+  const flag = (...names: string[]) => names.map((n) => flags[n]).find((v) => v !== undefined);
   const verb = args[0];
+
+  // Kubetopia has a single namespace; be honest about anything else.
+  const ns = flag("-n", "--namespace");
+  if (ns !== undefined && ns !== "default") {
+    return verb === "get"
+      ? out(`No resources found in ${ns} namespace.`)
+      : err(`Error from server (NotFound): namespaces "${ns}" not found (Kubetopia only simulates "default")`);
+  }
 
   switch (verb) {
     case "get": {
-      const wide = args.includes("-o") && args.includes("wide");
-      const kind = args[1];
+      const output = flag("-o", "--output");
+      const { kind, name } = kindAndName(args.slice(1));
       if (!kind) return err('error: you must specify the type of resource to get, e.g. "kubectl get pods"');
-      if (NODE_ALIASES.includes(kind)) return getNodes(cluster);
-      if (POD_ALIASES.includes(kind)) return getPods(cluster, wide);
-      if (DEPLOY_ALIASES.includes(kind)) return getDeployments(cluster);
-      if (SVC_ALIASES.includes(kind)) return getServices(cluster);
-      if (CM_ALIASES.includes(kind)) return getConfigMaps(cluster);
-      if (SECRET_ALIASES.includes(kind)) return getSecrets(cluster);
+      if (output === "yaml") return getYaml(cluster, kind, name);
+      // `kubectl get <kind> <name>` narrows the list to one object (or NotFound).
+      const named = <T extends { name: string }>(
+        items: T[],
+        plural: string,
+        render: (items: T[]) => CmdResult
+      ): CmdResult => {
+        if (!name) return render(items);
+        const hit = items.filter((x) => x.name === name);
+        return hit.length > 0 ? render(hit) : err(`Error from server (NotFound): ${plural} "${name}" not found`);
+      };
+      const podOpts: PodListOptions = {
+        wide: output === "wide",
+        showLabels: flags["--show-labels"] !== undefined,
+        selector: flag("-l", "--selector"),
+      };
+      if (NODE_ALIASES.includes(kind)) return named(cluster.nodes, "nodes", (nodes) => getNodes({ ...cluster, nodes }));
+      if (POD_ALIASES.includes(kind)) return named(cluster.pods, "pods", (pods) => getPods({ ...cluster, pods }, podOpts));
+      if (DEPLOY_ALIASES.includes(kind)) {
+        return named(cluster.deployments, "deployments", (deployments) => getDeployments({ ...cluster, deployments }));
+      }
+      if (SVC_ALIASES.includes(kind)) return named(cluster.services, "services", (services) => getServices({ ...cluster, services }));
+      if (EP_ALIASES.includes(kind)) return named(cluster.services, "endpoints", (services) => getEndpoints({ ...cluster, services }));
+      if (CM_ALIASES.includes(kind)) return named(cluster.configMaps, "configmaps", (configMaps) => getConfigMaps({ ...cluster, configMaps }));
+      if (SECRET_ALIASES.includes(kind)) return named(cluster.secrets, "secrets", (secrets) => getSecrets({ ...cluster, secrets }));
       if (kind === "events" || kind === "ev") return getEvents(cluster);
       if (kind === "all") {
         return out(
-          [getDeployments(cluster).output, "", getPods(cluster, false).output, "", getServices(cluster).output].join("\n")
+          [getDeployments(cluster).output, "", getPods(cluster).output, "", getServices(cluster).output].join("\n")
         );
       }
       return err(`error: the server doesn't have a resource type "${kind}"`);
@@ -353,14 +543,14 @@ export function runKubectl(
       if (POD_ALIASES.includes(kind)) return describePod(cluster, name);
       if (NODE_ALIASES.includes(kind)) return describeNode(cluster, name);
       if (DEPLOY_ALIASES.includes(kind)) return describeDeployment(cluster, name);
+      if (SVC_ALIASES.includes(kind)) return describeService(cluster, name);
       if (CM_ALIASES.includes(kind)) return describeConfigMap(cluster, name);
       if (SECRET_ALIASES.includes(kind)) return describeSecret(cluster, name);
       return err(`error: the server doesn't have a resource type "${kind}"`);
     }
 
     case "apply": {
-      const fIdx = args.indexOf("-f");
-      const filename = fIdx >= 0 ? args[fIdx + 1] : undefined;
+      const filename = flag("-f", "--filename");
       if (!filename) return err("usage: kubectl apply -f <file.yaml>");
       const content = files[filename];
       if (content === undefined) {
@@ -421,16 +611,32 @@ export function runKubectl(
     }
 
     case "logs": {
-      const name = args[1];
-      if (!name) return err("error: logs needs a pod name");
+      let name = args[1];
+      if (!name) return err("error: logs needs a pod name, e.g. kubectl logs web-abc12 (or kubectl logs deployment/web)");
+      // `kubectl logs deployment/web` picks one pod of the deployment.
+      if (name.includes("/")) {
+        const [k, owner] = name.split("/");
+        if (!DEPLOY_ALIASES.includes(k)) return err("error: logs takes a pod name or deployment/<name>");
+        const first = livePodsOf(cluster, owner)[0];
+        if (!first) return err(`error: no pods found for deployment "${owner}"`);
+        name = first.name;
+      }
       const p = cluster.pods.find((x) => x.name === name);
       if (!p) return err(`Error from server (NotFound): pods "${name}" not found`);
       const image = cluster.registry[p.image];
-      if (p.phase === "Pending" || p.phase === "ContainerCreating" || p.phase === "ImagePullBackOff") {
-        return err(`Error from server (BadRequest): container in pod "${name}" is waiting to start`);
+      if (
+        p.phase === "Pending" ||
+        p.phase === "ContainerCreating" ||
+        p.phase === "ImagePullBackOff" ||
+        p.phase === "CreateContainerConfigError"
+      ) {
+        // No container ever ran, so there is nothing to print — describe the pod instead.
+        return err(
+          `Error from server (BadRequest): container in pod "${name}" is waiting to start: ${p.phase} — no logs yet, try "kubectl describe pod ${name}"`
+        );
       }
       const issue = podStartupIssue(cluster, p.owner);
-      if (issue.configMissing) {
+      if (issue.configMissing?.optional) {
         return out(
           [
             `${p.image} starting...`,
@@ -440,7 +646,7 @@ export function runKubectl(
           ].join("\n")
         );
       }
-      if (issue.secretMissing) {
+      if (issue.secretMissing?.optional) {
         return out(
           [
             `${p.image} starting...`,
@@ -455,24 +661,28 @@ export function runKubectl(
     }
 
     case "delete": {
-      const { kind, name } = kindAndName(args.slice(1));
+      const { kind, name, rest } = kindAndName(args.slice(1));
       if (!kind || !name) return err("error: delete needs a resource and a name");
       if (POD_ALIASES.includes(kind)) {
-        const p = cluster.pods.find((x) => x.name === name);
-        if (!p) return err(`Error from server (NotFound): pods "${name}" not found`);
-        terminatePod(cluster, p);
-        return out(`pod "${name}" deleted`);
+        const lines: string[] = [];
+        for (const podName of [name, ...rest]) {
+          const p = cluster.pods.find((x) => x.name === podName);
+          if (!p) return err([...lines, `Error from server (NotFound): pods "${podName}" not found`].join("\n"));
+          terminatePod(cluster, p);
+          lines.push(`pod "${podName}" deleted`);
+        }
+        return out(lines.join("\n"));
       }
       return err(`deleting "${kind}" is not allowed in this mission`);
     }
 
     case "scale": {
       const { kind, name } = kindAndName(args.slice(1));
-      const repArg = args.find((a) => a.startsWith("--replicas="));
-      if (!kind || !name || !repArg || !DEPLOY_ALIASES.includes(kind)) {
+      const repRaw = flag("--replicas");
+      if (!kind || !name || repRaw === undefined || !DEPLOY_ALIASES.includes(kind)) {
         return err("usage: kubectl scale deployment/<name> --replicas=<n>");
       }
-      const n = parseInt(repArg.split("=")[1], 10);
+      const n = /^\d+$/.test(repRaw) ? parseInt(repRaw, 10) : NaN;
       if (isNaN(n) || n < 0 || n > 20) return err("error: --replicas must be a number between 0 and 20");
       const d = cluster.deployments.find((x) => x.name === name);
       if (!d) return err(`Error from server (NotFound): deployments "${name}" not found`);
@@ -491,7 +701,13 @@ export function runKubectl(
       }
       const d = cluster.deployments.find((x) => x.name === name);
       if (!d) return err(`Error from server (NotFound): deployments "${name}" not found`);
-      const newImage = assignment.split("=")[1];
+      const [container, newImage] = assignment.split("=");
+      if (container !== "*" && container !== containerNameOf(d)) {
+        return err(
+          `error: unable to find container named "${container}" — deployment/${name} has one container, named "${containerNameOf(d)}" (see kubectl describe deployment ${name})`
+        );
+      }
+      if (!newImage) return err("usage: kubectl set image deployment/<name> <container>=<image>");
       if (newImage === d.image) return out(`deployment.apps/${name} image unchanged`);
       d.previousImage = d.image;
       d.image = newImage;
@@ -503,10 +719,15 @@ export function runKubectl(
       const sub = args[1];
       const { kind, name } = kindAndName(args.slice(2));
       if (!kind || !name || !DEPLOY_ALIASES.includes(kind)) {
-        return err("usage: kubectl rollout undo|restart|status deployment/<name>");
+        return err("usage: kubectl rollout undo|restart|status|history deployment/<name>");
       }
       const d = cluster.deployments.find((x) => x.name === name);
       if (!d) return err(`Error from server (NotFound): deployments "${name}" not found`);
+      if (sub === "history") {
+        // Kubetopia remembers one previous revision — enough for `rollout undo`.
+        const rows = d.previousImage ? [["1", d.previousImage], ["2", d.image]] : [["1", d.image]];
+        return out([`deployment.apps/${name}`, table(["REVISION", "IMAGE"], rows)].join("\n"));
+      }
       if (sub === "undo") {
         if (!d.previousImage) return err(`error: no rollout history found for deployment "${name}"`);
         const prev = d.previousImage;
@@ -527,12 +748,13 @@ export function runKubectl(
             : `Waiting for deployment "${name}" rollout: ${ready} of ${d.replicas} updated replicas are available...`
         );
       }
-      return err("usage: kubectl rollout undo|restart|status deployment/<name>");
+      return err("usage: kubectl rollout undo|restart|status|history deployment/<name>");
     }
 
     case "cordon":
     case "uncordon": {
       const name = args[1];
+      if (!name) return err(`error: ${verb} needs a node name, e.g. kubectl ${verb} worker-1`);
       const node = cluster.nodes.find((n) => n.name === name);
       if (!node) return err(`Error from server (NotFound): nodes "${name}" not found`);
       node.cordoned = verb === "cordon";
@@ -541,7 +763,8 @@ export function runKubectl(
     }
 
     case "drain": {
-      const name = args.find((a, i) => i > 0 && !a.startsWith("--"));
+      const name = args[1];
+      if (!name) return err("error: drain needs a node name, e.g. kubectl drain worker-1 --ignore-daemonsets");
       const node = cluster.nodes.find((n) => n.name === name);
       if (!node) return err(`Error from server (NotFound): nodes "${name}" not found`);
       node.cordoned = true;
@@ -567,8 +790,13 @@ export function runKubectl(
     }
 
     case "top": {
-      if (args[1] && NODE_ALIASES.includes(args[1])) return getNodes(cluster);
-      return err("usage: kubectl top nodes");
+      // `top` reports LIVE usage from metrics-server, which Kubetopia does not
+      // simulate. Capacity planning here is about requests, so say so.
+      return err(
+        "error: Metrics API not available (metrics-server is not installed in Kubetopia).\n" +
+          "`kubectl top` would show live usage, but the scheduler only looks at REQUESTS:\n" +
+          "see the CPU-REQUESTS column of `kubectl get nodes`, or `kubectl describe node <name>`."
+      );
     }
 
     case "version":
@@ -580,15 +808,16 @@ export function runKubectl(
 }
 
 export const HELP_TEXT = `Kubetopia console — supported commands
-  kubectl get nodes|pods|deployments|services|configmaps|secrets|events|all
-      (aliases: no, po, deploy, svc, cm)
-  kubectl get pods -o wide
-  kubectl describe pod|node|deployment|configmap|secret <name>
-  kubectl logs <pod>
+  kubectl get nodes|pods|deployments|services|endpoints|configmaps|secrets|events|all
+      (aliases: no, po, deploy, svc, ep, cm)   add a name to show just one
+  kubectl get pods -o wide | --show-labels | -l app=<value>
+  kubectl get deployment|service|configmap|secret <name> -o yaml
+  kubectl describe pod|node|deployment|service|configmap|secret <name>
+  kubectl logs <pod>   (or: kubectl logs deployment/<name>)
   kubectl delete pod <name>
   kubectl scale deployment/<name> --replicas=<n>
   kubectl set image deployment/<name> <container>=<image>
-  kubectl rollout undo|restart|status deployment/<name>
+  kubectl rollout undo|restart|status|history deployment/<name>
   kubectl cordon|uncordon|drain <node>
   kubectl patch service <name> -p '{"spec":{"selector":{"app":"<value>"}}}'
   kubectl apply -f <file.yaml>   — open a blueprint in the YAML editor & apply
@@ -598,4 +827,7 @@ export const HELP_TEXT = `Kubetopia console — supported commands
   hint      — nudge for the current objective
   clear     — clear the console
   help      — this text
-Tip: "k" works as a shortcut for "kubectl".`;
+Tip: "k" works as a shortcut for "kubectl". Press Tab to complete names.
+Simulator notes: one namespace (default); every Deployment uses the Recreate
+strategy (old pods stop before new ones start); node CPU/memory columns show
+REQUESTS, which is what the scheduler counts.`;

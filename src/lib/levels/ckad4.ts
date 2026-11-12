@@ -68,6 +68,7 @@ const ckad4: LevelDef = {
         image: "patient-records:4.2",
         critical: true,
         cpuPerPod: 300,
+        containerName: "records",
       }),
       makeDeployment("xray-archive", { replicas: 2, image: "xray-archive:2.0" })
     );
