@@ -106,7 +106,7 @@ const ckad1: LevelDef = {
       description:
         "Apply admissions.yaml. The API server will refuse Devin's draft — read its error, fix the manifest in the editor, and apply again.",
       points: 250,
-      hint: 'Run `kubectl apply -f admissions.yaml`. The selector says "admissions-desk" but the template labels say "admissions" — make them match (both "admissions"), then press Apply.',
+      hint: 'Run `kubectl apply -f admissions.yaml`. The selector says "admissions-desk" but the template labels say "admissions" — make them match (both "admissions" — the Service below selects app: admissions too), then press Apply.',
       check: (ctx) =>
         ctx.cluster.deployments.some((d) => d.name === "admissions-web") &&
         ctx.cluster.services.some((s) => s.name === "admissions-svc"),
@@ -117,7 +117,7 @@ const ckad1: LevelDef = {
       description:
         "The desk exists — now it must serve. Both replicas Ready and the admissions-svc service routing to them.",
       points: 200,
-      hint: "Watch `kubectl get pods` until 2/2 are Ready, then `kubectl get svc` — admissions-svc should show ready endpoints.",
+      hint: "Watch `kubectl get pods` until 2/2 are Ready, then `kubectl describe svc admissions-svc` — it should list Endpoints. If it says <none>, the Service's selector doesn't match your pods' label (`kubectl get pods --show-labels`): `kubectl edit service admissions-svc` and make them agree.",
       check: (ctx) =>
         deploymentHealthy(ctx.cluster, "admissions-web", 2) &&
         serviceHealth(ctx.cluster, "admissions-svc") >= 1,

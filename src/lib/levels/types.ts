@@ -26,6 +26,9 @@ export interface StoryPage {
 export interface CommandEntry {
   raw: string;
   tick: number;
+  /** False when kubectl rejected the command (typo, NotFound, bad usage).
+   *  Failed commands never satisfy an objective. Absent = succeeded. */
+  ok?: boolean;
 }
 
 export interface CheckCtx {
@@ -33,6 +36,8 @@ export interface CheckCtx {
   /** Commands the player has entered this level, with the tick they ran at. */
   commands: CommandEntry[];
   tick: number;
+  /** `id`s of the scripted events that have already fired. */
+  firedEvents: string[];
 }
 
 export interface LevelObjective {
@@ -46,7 +51,15 @@ export interface LevelObjective {
 }
 
 export interface ScriptedEvent {
+  /** Lets objective checks ask "has this happened yet?" via ctx.firedEvents. */
+  id?: string;
+  /** Latest tick at which the event fires (Infinity = only via afterObjective). */
   atTick: number;
+  /** Fire EARLY — `afterDelay` ticks after this objective completes — so a
+   *  fast player is never left waiting for the story to catch up. */
+  afterObjective?: string;
+  /** Ticks between the objective completing and the event firing (default 5). */
+  afterDelay?: number;
   /** Popup shown to the player when the event fires. */
   title?: string;
   story?: string;

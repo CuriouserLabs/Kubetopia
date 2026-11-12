@@ -19,7 +19,7 @@ const SECOND_NODE_DOWN_AT = 50;
 const STORM_PASSES_AT = 150;
 
 /**
- * Level 5 — the finale. A storm takes out half the cluster's capacity.
+ * Level 5 — the storm. Half the cluster's capacity is lost in one night.
  * Triage under scarcity: drain dead nodes, surge the hospital, sacrifice
  * the arcade, then rebuild when the storm passes.
  */
@@ -48,7 +48,7 @@ const level5: LevelDef = {
     },
   ],
   outro:
-    "Dawn breaks over Kubetopia. The hospital never blinked, the evacuation routes stayed lit, and the arcade kids forgave you the moment their high scores loaded back in. The town throws a festival in your honor — and this time, the ticket service stays up. You are, officially, a Kubernetes Administrator.",
+    "Dawn breaks over Kubetopia. The hospital never blinked, the evacuation routes stayed lit, and the arcade kids forgave you the moment their high scores loaded back in. The town throws a festival in your honor — and this time, the ticket service stays up. You can run this town through anything now. Which is lucky, because Elowen the architect is already unrolling blueprints for something new...",
   parTicks: 260,
   buildCluster: () => {
     const c = emptyCluster();
@@ -118,11 +118,11 @@ const level5: LevelDef = {
       id: "rebuild",
       title: "Rebuild after the storm",
       description:
-        "Sigrid has passed and both nodes are Ready again. Uncordon them and restore the town: arcade back to 5, news-site to 2, everything green, nothing Pending.",
+        "Hold the line until Sigrid passes. The repair crews will then bring worker-3 and worker-4 back Ready — still cordoned from your drains. Uncordon them and restore the town: arcade back to 5, news-site to 2, everything green, nothing Pending.",
       points: 300,
       hint: "`kubectl uncordon worker-3`, `kubectl uncordon worker-4`, then scale arcade back to 5 (and news-site to 2 if you shrank it).",
+      // No clock guard needed: the nodes only turn Ready when the storm passes.
       check: (ctx) =>
-        ctx.tick > STORM_PASSES_AT &&
         nodeBackInService(ctx.cluster, "worker-3") &&
         nodeBackInService(ctx.cluster, "worker-4") &&
         deploymentHealthy(ctx.cluster, "hospital", 5) &&
@@ -158,6 +158,9 @@ const level5: LevelDef = {
     },
     {
       atTick: STORM_PASSES_AT,
+      // Triage done early? Let the storm blow over instead of idling to tick 150.
+      afterObjective: "triage",
+      afterDelay: 12,
       title: "🌅 The storm passes",
       speaker: "power",
       story:

@@ -1,5 +1,5 @@
 import { createPodFor, emptyCluster, makeDeployment, makeNode, serviceHealth } from "../k8s/engine";
-import { deploymentHealthy, ranCommand } from "./helpers";
+import { deploymentHealthy, probeHealthy, ranCommand } from "./helpers";
 import type { LevelDef } from "./types";
 
 /**
@@ -103,7 +103,7 @@ const ckad3: LevelDef = {
       description:
         "telemetry pods are Running yet 0/1 Ready; ward-dashboard pods are crash-looping. Same ward, different diseases — gather evidence with describe or the event log.",
       points: 150,
-      hint: "`kubectl get pods` first. Then `kubectl describe pod <telemetry-pod>` and `kubectl get events` — read what the probe and the crashes are complaining about.",
+      hint: "`kubectl get pods` first. Then `kubectl describe pod <telemetry-pod>` and `kubectl get events` — read what the probe is complaining about. For the crash loop, `kubectl logs <ward-dashboard-pod>` has the app's last words.",
       check: (ctx) =>
         ranCommand(ctx, /kubectl\s+get\s+(events|ev)\b/) ||
         ranCommand(ctx, /kubectl\s+describe\s+(po|pod|pods)\s+\S+/),
@@ -114,13 +114,9 @@ const ckad3: LevelDef = {
       description:
         "The telemetry container listens on port 8080, but its readiness probe knocks on 9090 — so no pod ever goes Ready and icu-svc has no endpoints. Correct the probe. All 3 replicas Ready.",
       points: 300,
-      hint: "`kubectl edit deployment/telemetry` — change the readinessProbe httpGet port from 9090 to 8080 (the containerPort), then Apply and watch the pods go Ready.",
+      hint: "`kubectl edit deployment/telemetry` — change the readinessProbe httpGet port from 9090 to 8080 (the port the app's logs say it serves on), then Apply and watch the pods go Ready.",
       check: (ctx) => {
-        const d = ctx.cluster.deployments.find((x) => x.name === "telemetry");
-        if (!d) return false;
-        const listens = d.containerPort ?? 8080;
-        const probeOk = d.probePort === undefined || d.probePort === listens;
-        return probeOk && deploymentHealthy(ctx.cluster, "telemetry", 3);
+        return probeHealthy(ctx.cluster, "telemetry") && deploymentHealthy(ctx.cluster, "telemetry", 3);
       },
     },
     {

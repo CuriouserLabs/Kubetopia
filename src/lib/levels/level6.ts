@@ -100,7 +100,7 @@ const level6: LevelDef = {
     },
     {
       speaker: "mentor",
-      text: "YAML lessons, kid: replicas is a NUMBER, not a word. A Deployment's selector must match its template labels exactly. And check every image tag against the registry twice. Run `cat library.yaml`, then `kubectl apply -f library.yaml` — the editor will let you fix it before applying.",
+      text: "YAML lessons, kid: the API server is the strictest proofreader you'll ever meet. It refuses a bad blueprint and tells you exactly which field offended it — so read its errors and fix one thing at a time. But some mistakes are perfectly valid YAML, and only show up once the pods try to start. Run `cat library.yaml`, then `kubectl apply -f library.yaml` — the editor will let you fix it before applying.",
     },
   ],
   outro:
@@ -136,9 +136,9 @@ const level6: LevelDef = {
       id: "blueprint",
       title: "Unroll the blueprints",
       description:
-        "Read the architect's draft (`cat library.yaml`), then take it to the API server with `kubectl apply -f library.yaml`. Fix what the server rejects — replicas must be a number, and the selector must match the template labels.",
+        "Read the architect's draft (`cat library.yaml`), then take it to the API server with `kubectl apply -f library.yaml`. The server will refuse it — more than once. Read each error, fix that field in the editor, and Apply again until the Deployment and the Service both exist.",
       points: 200,
-      hint: 'Run `kubectl apply -f library.yaml`. In the editor: change replicas to 2 (a number, no quotes) and make spec.selector.matchLabels.app say "library-web" so it matches the template. Then press Apply.',
+      hint: 'Run `kubectl apply -f library.yaml`. In the editor: change replicas to 2 (a number, no quotes) and make spec.selector.matchLabels.app say "library-web" so it matches the template (fix the selector, not the label — the Service below already selects app: library-web). Then press Apply.',
       check: (ctx) =>
         ctx.cluster.deployments.some((d) => d.name === "library-web") &&
         ctx.cluster.services.some((s) => s.name === "library-svc"),
@@ -147,12 +147,19 @@ const level6: LevelDef = {
       id: "shelves",
       title: "Raise the reading halls",
       description:
-        "The deployment applied, but the pods can't pull their image. Find the tag typo and fix it — in the YAML (`kubectl edit deployment/library-web`) or however you like. Two halls (replicas), both Ready.",
+        "The deployment applied, but the pods can't pull their image. Find the tag typo and fix it — in the YAML (`kubectl edit deployment/library-web`) or however you like. Two halls (replicas), both Ready, and library-svc actually routing to them.",
       points: 300,
-      hint: "`kubectl get pods` shows ImagePullBackOff. The registry has library-web:1.2 — the blueprint says 1.20. `kubectl edit deployment/library-web` and correct the image tag.",
+      hint: "`kubectl get pods` shows ImagePullBackOff. The registry has library-web:1.2 — the blueprint says 1.20. `kubectl edit deployment/library-web` and correct the image tag. Then `kubectl describe svc library-svc`: if Endpoints is <none>, the Service's selector doesn't match your pods' label — `kubectl edit service library-svc` and make them agree.",
       check: (ctx) => {
         const d = ctx.cluster.deployments.find((x) => x.name === "library-web");
-        return !!d && ctx.cluster.registry[d.image]?.exists === true && deploymentHealthy(ctx.cluster, "library-web", 2);
+        return (
+          !!d &&
+          ctx.cluster.registry[d.image]?.exists === true &&
+          deploymentHealthy(ctx.cluster, "library-web", 2) &&
+          // Catch a selector/label mismatch here, where the hint explains it,
+          // instead of leaving the player stuck at the final objective.
+          serviceHealth(ctx.cluster, "library-svc") >= 1
+        );
       },
     },
     {

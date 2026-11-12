@@ -6,6 +6,7 @@ import type { Cluster } from "@/lib/k8s/types";
 import { HELP_TEXT, runKubectl, type EditorRequest } from "@/lib/k8s/kubectl";
 import { applyYaml, ManifestError } from "@/lib/k8s/manifest";
 import { getLevel, levelsForTrack, trackOf } from "@/lib/levels";
+import { eventDue } from "@/lib/levels/helpers";
 import type { CommandEntry, LevelDef, SpeakerId } from "@/lib/levels/types";
 import { saveCloudProgress } from "@/lib/firebase/progress";
 import { recordCampaignRun } from "@/lib/online/campaignRuns";
@@ -86,6 +87,8 @@ interface GameState {
   commands: CommandEntry[];
   terminal: TerminalLine[];
   completed: string[];
+  /** Tick at which each objective was completed (drives early scripted events). */
+  completedAt: Record<string, number>;
   firedEvents: number[];
   score: number;
   happiness: number;
@@ -121,6 +124,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   commands: [],
   terminal: [],
   completed: [],
+  completedAt: {},
   firedEvents: [],
   score: 0,
   happiness: 80,
@@ -147,6 +151,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         { kind: "sys", text: 'Type "help" for the command reference, "hint" if you get stuck.' },
       ],
       completed: [],
+      completedAt: {},
       firedEvents: [],
       score: 0,
       happiness: 80,
@@ -168,30 +173,46 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   stepTick: () => {
     const s = get();
-    if (!s.cluster || !s.level || s.paused || s.levelComplete) return;
+    // The clock stops while the YAML editor is open: reading a manifest is not
+    // a race, and a story pop-up must never land on top of half-typed YAML.
+    if (!s.cluster || !s.level || s.paused || s.levelComplete || s.editor) return;
     const cluster = s.cluster;
     engineTick(cluster);
 
-    // Scripted events
+    // Scripted events — at their tick, or early once their objective is done.
     const dialogs = [...s.dialogs];
     const firedEvents = [...s.firedEvents];
+    const terminal = [...s.terminal];
     s.level.events.forEach((ev, i) => {
-      if (cluster.tick >= ev.atTick && !firedEvents.includes(i)) {
+      if (!firedEvents.includes(i) && eventDue(ev, cluster.tick, s.completedAt)) {
         firedEvents.push(i);
         ev.mutate?.(cluster);
-        if (ev.story) dialogs.push({ title: ev.title ?? "Event", body: ev.story, speaker: ev.speaker });
+        if (ev.story) {
+          dialogs.push({ title: ev.title ?? "Event", body: ev.story, speaker: ev.speaker });
+          // Keep a copy in the console so a dismissed pop-up can be re-read.
+          terminal.push({ kind: "sys", text: `📟 ${ev.title ?? "Event"} — ${ev.story}` });
+        }
       }
     });
 
     // Objectives (sequential: an objective can only complete after all before it)
     const completed = [...s.completed];
+    const completedAt = { ...s.completedAt };
     const notices = [...s.notices];
     let score = s.score;
-    const ctx = { cluster, commands: s.commands, tick: cluster.tick };
+    const ctx = {
+      cluster,
+      commands: s.commands,
+      tick: cluster.tick,
+      firedEvents: firedEvents
+        .map((i) => s.level!.events[i].id)
+        .filter((id): id is string => id !== undefined),
+    };
     for (const obj of s.level.objectives) {
       if (completed.includes(obj.id)) continue;
       if (obj.check(ctx)) {
         completed.push(obj.id);
+        completedAt[obj.id] = cluster.tick;
         score += obj.points;
         notices.push({ id: ++noticeId, text: `✅ ${obj.title}  (+${obj.points})` });
       }
@@ -247,7 +268,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       cluster: { ...cluster },
       dialogs,
       firedEvents,
+      terminal,
       completed,
+      completedAt,
       notices,
       score,
       happiness,
@@ -309,8 +332,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       return;
     }
 
-    const commands = [...s.commands, { raw: trimmed, tick: s.cluster.tick }];
     const result = runKubectl(s.cluster, trimmed, s.files);
+    // Record whether kubectl accepted it: a rejected command (typo, NotFound)
+    // must not tick off a "run this command" objective.
+    const commands = [...s.commands, { raw: trimmed, tick: s.cluster.tick, ok: result.ok }];
     terminal.push({ kind: result.ok ? "out" : "err", text: result.output });
     if (terminal.length > 200) terminal.splice(0, terminal.length - 200);
     set({

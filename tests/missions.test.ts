@@ -21,6 +21,7 @@ import { tick as engineTick } from "../src/lib/k8s/engine";
 import { runKubectl } from "../src/lib/k8s/kubectl";
 import { applyYaml } from "../src/lib/k8s/manifest";
 import { LEVELS } from "../src/lib/levels";
+import { eventDue } from "../src/lib/levels/helpers";
 import type { CommandEntry, LevelDef } from "../src/lib/levels/types";
 import type { Cluster } from "../src/lib/k8s/types";
 
@@ -31,6 +32,8 @@ interface Sim {
   cluster: Cluster;
   commands: CommandEntry[];
   completed: string[];
+  /** Tick each objective completed at (mirrors gameStore.completedAt). */
+  completedAt: Record<string, number>;
   fired: Set<number>;
   warnings: string[];
 }
@@ -42,29 +45,38 @@ const byId = (id: number): LevelDef => {
 };
 
 function start(level: LevelDef): Sim {
-  return { level, cluster: level.buildCluster(), commands: [], completed: [], fired: new Set(), warnings: [] };
+  return { level, cluster: level.buildCluster(), commands: [], completed: [], completedAt: {}, fired: new Set(), warnings: [] };
 }
 
 /** One game tick, mirroring gameStore.stepTick. */
 function step(sim: Sim) {
   engineTick(sim.cluster);
   sim.level.events.forEach((ev, i) => {
-    if (sim.cluster.tick >= ev.atTick && !sim.fired.has(i)) {
+    if (!sim.fired.has(i) && eventDue(ev, sim.cluster.tick, sim.completedAt)) {
       sim.fired.add(i);
       ev.mutate?.(sim.cluster);
     }
   });
-  const ctx = { cluster: sim.cluster, commands: sim.commands, tick: sim.cluster.tick };
+  const ctx = {
+    cluster: sim.cluster,
+    commands: sim.commands,
+    tick: sim.cluster.tick,
+    firedEvents: [...sim.fired].map((i) => sim.level.events[i].id).filter((id): id is string => id !== undefined),
+  };
   for (const obj of sim.level.objectives) {
     if (sim.completed.includes(obj.id)) continue;
-    if (obj.check(ctx)) sim.completed.push(obj.id);
+    if (obj.check(ctx)) {
+      sim.completed.push(obj.id);
+      sim.completedAt[obj.id] = sim.cluster.tick;
+    }
     break; // sequential: only the first incomplete objective is evaluated
   }
 }
 
+/** Run a command the scenario expects to succeed (a failure is reported). */
 function run(sim: Sim, raw: string) {
-  sim.commands.push({ raw, tick: sim.cluster.tick });
   const res = runKubectl(sim.cluster, raw, sim.level.files ?? {});
+  sim.commands.push({ raw, tick: sim.cluster.tick, ok: res.ok });
   if (!res.ok) sim.warnings.push(`command failed: ${raw} → ${res.output.split("\n")[0]}`);
 }
 

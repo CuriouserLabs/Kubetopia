@@ -66,7 +66,7 @@ const ckad2: LevelDef = {
   name: "The Pharmacy Formulary",
   tagline: "Pills without config are just guesses — and the vault won't open without its Secret.",
   track: "ckad",
-  skills: ["ConfigMaps & env variables", "Secrets & secretKeyRef", "debugging CrashLoopBackOff"],
+  skills: ["ConfigMaps & env variables", "Secrets & secretKeyRef", "CrashLoopBackOff vs CreateContainerConfigError"],
   story: [
     {
       speaker: "doctor",
@@ -170,9 +170,9 @@ const ckad2: LevelDef = {
       id: "unlock",
       title: "Open the vault for business",
       description:
-        "The vault pods are crashing: the Deployment asks for a Secret that doesn't quite exist. Make the names line up — then both replicas Ready and prescriptions-svc serving.",
+        "The vault pods never start. This isn't the pharmacy's crash loop: `kubectl get pods` shows CreateContainerConfigError — the kubelet can't even build the container, so there are no logs to read. `kubectl describe pod` names what it can't find. Make the names line up — then both replicas Ready and prescriptions-svc serving.",
       points: 300,
-      hint: 'The Secret is named "pharmacy-db" but the Deployment\'s secretKeyRef says "pharmacy-db-pass". `kubectl get secrets` to confirm, then fix either side — e.g. `kubectl edit deployment/prescriptions` and correct the secret name.',
+      hint: '`kubectl describe pod <prescriptions-pod>` says: secret "pharmacy-db-pass" not found. The Secret you applied is named "pharmacy-db". `kubectl get secrets` to confirm, then fix either side — e.g. `kubectl edit deployment/prescriptions` and correct the secret name. No restart needed: the kubelet retries on its own.',
       check: (ctx) => {
         const d = ctx.cluster.deployments.find((x) => x.name === "prescriptions");
         if (!d || !d.secretRef) return false;

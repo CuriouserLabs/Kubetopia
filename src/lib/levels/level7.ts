@@ -1,5 +1,5 @@
 import { emptyCluster, makeDeployment, makeNode } from "../k8s/engine";
-import { deploymentHealthy, noPendingPods, ranCommand } from "./helpers";
+import { deploymentHealthy, noPendingPods, probeHealthy, ranCommand } from "./helpers";
 import type { LevelDef } from "./types";
 
 const QUEEN_ARRIVES_AT = 150;
@@ -106,14 +106,11 @@ const level7: LevelDef = {
       id: "welcome",
       title: "Ring the Welcome Hall ready",
       description:
-        "The Welcome Hall listens on port 8080, but its readiness probe knocks on 9090 — so Kubernetes never sends it guests. Point the probe at the right door.",
+        "The Welcome Hall app listens on port 8080 (its logs say so), but its readiness probe knocks on 9090 — so Kubernetes never sends it guests. Point the probe at the right door. (Editing containerPort won't help: that field is only a label — it doesn't move the app.)",
       points: 300,
       hint: "`kubectl edit deployment/welcome-hall` — find readinessProbe.httpGet.port and change 9090 to 8080. Apply and wait for 2/2 Ready.",
       check: (ctx) => {
-        const d = ctx.cluster.deployments.find((x) => x.name === "welcome-hall");
-        if (!d) return false;
-        const listens = d.containerPort ?? 8080;
-        return (d.probePort === undefined || d.probePort === listens) && deploymentHealthy(ctx.cluster, "welcome-hall", 2);
+        return probeHealthy(ctx.cluster, "welcome-hall") && deploymentHealthy(ctx.cluster, "welcome-hall", 2);
       },
     },
     {
