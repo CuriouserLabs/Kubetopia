@@ -83,7 +83,8 @@ const ckad5: LevelDef = {
       replicas: 2,
       image: "lab-analyzer:5.5",
       cpuPerPod: 300,
-      secretRef: { name: "natl-health-api", key: "api-token" },
+      // optional: true => the app starts, finds no token and exits (CrashLoopBackOff).
+      secretRef: { name: "natl-health-api", key: "api-token", optional: true },
     });
     const oxygen = makeDeployment("oxygen-scheduler", {
       replicas: 2,
@@ -94,7 +95,9 @@ const ckad5: LevelDef = {
     const giftShop = makeDeployment("gift-shop", {
       replicas: 3,
       image: "gift-shop:1.1",
-      cpuPerPod: 600,
+      // 3 × 800m: six triage desks do NOT fit beside it (6300m > 6000m), so
+      // the surge objective genuinely forces the gift-shop trade-off.
+      cpuPerPod: 800,
     });
     c.deployments.push(triage, lab, oxygen, giftShop);
     c.services.push(
@@ -119,21 +122,25 @@ const ckad5: LevelDef = {
       id: "lab",
       title: "Restore the lab uplink",
       description:
-        "lab-analyzer crash-loops: it needs the key `api-token` from Secret natl-health-api — which doesn't exist yet. Devin left a draft in natl-health-api.yaml, but check his key name against what the pods actually demand.",
+        "lab-analyzer is crash-looping and no results reach the National Health Registry. Find out exactly what the pods are asking for, then supply it. Devin left a draft in natl-health-api.yaml — verify EVERYTHING in it against what the pods actually demand.",
       points: 250,
       hint: "`kubectl logs <lab-pod>` names the required key: api-token. Devin's draft says apiToken. `kubectl apply -f natl-health-api.yaml`, rename the key to `api-token` in the editor, Apply — then watch the lab pods recover.",
       check: (ctx) => {
-        const sec = ctx.cluster.secrets.find((s) => s.name === "natl-health-api");
-        return !!sec && "api-token" in sec.data && deploymentHealthy(ctx.cluster, "lab-analyzer", 2);
+        // Either fix is legitimate: rename the Secret's key, or point the
+        // Deployment's secretKeyRef at the key that exists.
+        const d = ctx.cluster.deployments.find((x) => x.name === "lab-analyzer");
+        if (!d?.secretRef) return false;
+        const sec = ctx.cluster.secrets.find((s) => s.name === d.secretRef!.name);
+        return !!sec && d.secretRef.key in sec.data && deploymentHealthy(ctx.cluster, "lab-analyzer", 2);
       },
     },
     {
       id: "oxygen",
       title: "Reconnect the oxygen line",
       description:
-        "oxygen-svc shows zero endpoints even though the scheduler pods are Ready. Somebody fat-fingered the Service selector. Find the typo and fix it.",
+        "The oxygen dashboard shows NO DATA: oxygen-svc has zero endpoints even though the scheduler pods are Ready. Work out why the Service isn't finding them, and fix it.",
       points: 250,
-      hint: "`kubectl get svc` — oxygen-svc selects app=oxygen-schedler (note the missing 'u'). Fix it: `kubectl patch service oxygen-svc -p '{\"spec\":{\"selector\":{\"app\":\"oxygen-scheduler\"}}}'`.",
+      hint: "`kubectl describe svc oxygen-svc`, then `kubectl get pods --show-labels` — oxygen-svc selects app=oxygen-schedler (note the missing 'u'). Fix it: `kubectl patch service oxygen-svc -p '{\"spec\":{\"selector\":{\"app\":\"oxygen-scheduler\"}}}'`.",
       check: (ctx) => {
         const svc = ctx.cluster.services.find((s) => s.name === "oxygen-svc");
         return !!svc && svc.selectorApp === "oxygen-scheduler" && serviceHealth(ctx.cluster, "oxygen-svc") >= 1;
@@ -143,9 +150,9 @@ const ckad5: LevelDef = {
       id: "surge",
       title: "Surge the triage desks",
       description:
-        "Outbreak protocol demands SIX triage desks, all Ready, with nothing stuck Pending. The cluster is only so big — if new desks won't schedule, something non-critical has to shrink. The mayor has opinions about the gift shop.",
+        "Outbreak protocol demands SIX triage desks, all Ready, with nothing stuck Pending. The cluster is only so big — do the capacity math, and if new desks won't schedule, something non-critical has to shrink.",
       points: 350,
-      hint: "`kubectl scale deployment/triage-desk --replicas=6`. If pods sit Pending, check `kubectl get nodes` for CPU — then `kubectl scale deployment/gift-shop --replicas=1` (or 0) to free capacity.",
+      hint: "`kubectl scale deployment/triage-desk --replicas=6`. Pods sit Pending? `kubectl describe pod <pending-pod>` says Insufficient cpu, and `kubectl get nodes` shows the requests. The gift shop holds 3 × 800m: `kubectl scale deployment/gift-shop --replicas=1` (or 0) frees it.",
       check: (ctx) =>
         deploymentHealthy(ctx.cluster, "triage-desk", 6) && noPendingPods(ctx.cluster),
     },

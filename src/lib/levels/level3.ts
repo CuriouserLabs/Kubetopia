@@ -41,7 +41,7 @@ const level3: LevelDef = {
   ],
   outro:
     "Power restored, seagull relocated to a nice farm upstate, and the townsfolk slept through the whole thing — which is the highest compliment an SRE can receive.",
-  parTicks: 180,
+  parTicks: 140,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(
@@ -89,7 +89,7 @@ const level3: LevelDef = {
       description:
         "Pods on worker-2 are stuck in Unknown — Kubernetes will wait ages before evicting them on its own. Drain the node so they reschedule NOW.",
       points: 300,
-      hint: "Run `kubectl drain worker-2 --ignore-daemonsets` (cordon + delete pod also works, but drain is the pro move).",
+      hint: "Run `kubectl drain worker-2 --ignore-daemonsets` (cordon + delete pod also works, but drain is the pro move). Real-world footnote: against a truly dead node, drain can hang waiting for a kubelet that will never answer — add `--force --grace-period=0`, or delete the Node object.",
       check: (ctx) => nodeDrained(ctx.cluster, "worker-2"),
     },
     {
@@ -108,11 +108,12 @@ const level3: LevelDef = {
       id: "reinstate",
       title: "Welcome worker-2 back",
       description:
-        "The power company fixed the line and worker-2 is Ready again — but it's still cordoned from the drain. Put it back into service.",
+        "The power company is working on the line. When worker-2 reports Ready again it will still be cordoned from your drain — the scheduler ignores it until you put it back into service.",
       points: 150,
       hint: "Run `kubectl uncordon worker-2` once the node shows Ready.",
-      check: (ctx) =>
-        ctx.tick > NODE_RECOVERS_AT && nodeBackInService(ctx.cluster, "worker-2"),
+      // No clock guard needed: worker-2 only turns Ready when the recovery
+      // event fires, and it is cordoned from the drain objective before this.
+      check: (ctx) => nodeBackInService(ctx.cluster, "worker-2"),
     },
   ],
   events: [
@@ -126,6 +127,9 @@ const level3: LevelDef = {
     },
     {
       atTick: NODE_RECOVERS_AT,
+      // Don't make a fast player stare at a healthy cluster for a minute.
+      afterObjective: "restore",
+      afterDelay: 8,
       title: "🔌 Power Company",
       speaker: "power",
       story:

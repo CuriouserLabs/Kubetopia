@@ -27,7 +27,7 @@ const level4: LevelDef = {
       text: "Kubetopia has gone commercial! The island's shops now share one payment platform, and today is the launch of the Grand Bazaar — every merchant online at once. Do NOT let this become a headline.",
     },
     {
-      text: "The war room (the bakery's back office) has three whiteboards, two of them already covered in arrows. Your cluster: two worker buildings, 2000m CPU each. Every pod requests its share — when the requests don't fit, pods go Pending and wait forever.",
+      text: "The war room (the bakery's back office) has three whiteboards, two of them already covered in arrows. Your cluster: two worker buildings, 2000m CPU each. Every pod requests its share — when the requests don't fit, pods go Pending and wait forever. One more thing: the payment platform uses the Recreate rollout strategy (two versions must never touch the ledger at once), so a release stops EVERY old pod before starting new ones. A bad release here is a full outage, not a slow leak.",
     },
     {
       speaker: "mentor",
@@ -36,7 +36,7 @@ const level4: LevelDef = {
   ],
   outro:
     "Payments hum, the analytics team got their (reasonably sized) dashboards, and the Grand Bazaar's first day closes with record sales. The whiteboards have been wiped. For now.",
-  parTicks: 200,
+  parTicks: 170,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(
@@ -97,30 +97,19 @@ const level4: LevelDef = {
       id: "capacity",
       title: "Tame the analytics land-grab",
       description:
-        "Analytics scaled themselves to 8 pods × 400m CPU and the scheduler is drowning in Pending. Do the math (2 workers × 2000m) and right-size them — the team needs at least 5 replicas actually Running.",
-      points: 350,
+        "Analytics scaled themselves to 8 pods × 400m CPU and the scheduler is drowning in Pending. Do the math (2 workers × 2000m) and right-size them — the team needs at least 5 replicas actually Running. Close launch day green: payments, checkout and analytics all at full strength, zero Pending pods.",
+      points: 550,
       hint: "Total worker CPU is 4000m; payments+checkout use 1250m. 8×400m won't fit — `kubectl scale deployment/analytics --replicas=5` (or 6) fits. Then wait for Pending to clear.",
       check: (ctx) => {
         const d = ctx.cluster.deployments.find((x) => x.name === "analytics");
         return (
-          !!d && d.replicas >= 5 && ctx.tick > ANALYTICS_SPREE_AT &&
+          !!d && d.replicas >= 5 && ctx.firedEvents.includes("analytics-spree") &&
           deploymentHealthy(ctx.cluster, "analytics", 5) &&
+          deploymentHealthy(ctx.cluster, "payments", 3) &&
+          deploymentHealthy(ctx.cluster, "checkout", 2) &&
           noPendingPods(ctx.cluster)
         );
       },
-    },
-    {
-      id: "steady",
-      title: "Close the launch day green",
-      description:
-        "Every deployment at full strength, zero Pending pods, war-room whiteboards wiped.",
-      points: 200,
-      hint: "All of payments (3), checkout (2) and analytics (5+) Ready, with no Pending pods left.",
-      check: (ctx) =>
-        deploymentHealthy(ctx.cluster, "payments", 3) &&
-        deploymentHealthy(ctx.cluster, "checkout", 2) &&
-        deploymentHealthy(ctx.cluster, "analytics", 5) &&
-        noPendingPods(ctx.cluster),
     },
   ],
   events: [
@@ -139,7 +128,10 @@ const level4: LevelDef = {
       },
     },
     {
+      id: "analytics-spree",
       atTick: ANALYTICS_SPREE_AT,
+      afterObjective: "rollback",
+      afterDelay: 6,
       title: "📊 Analytics goes shopping",
       speaker: "analytics",
       story:

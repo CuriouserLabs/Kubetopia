@@ -13,6 +13,7 @@ import type {
   K8sDeployment,
   K8sNode,
   K8sPod,
+  KeyRef,
 } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -78,10 +79,27 @@ export function emptyCluster(): Cluster {
  * Why a deployment's pods can't start or go Ready — mirrors the two most
  * common "it deployed but it doesn't work" causes in real clusters.
  */
+/** A ConfigMap/Secret reference that does not resolve right now. */
+export interface MissingRef extends KeyRef {
+  /** True when the whole ConfigMap/Secret is absent (not just the key). */
+  objectMissing: boolean;
+}
+
 export interface StartupIssue {
-  configMissing?: { name: string; key: string };
-  secretMissing?: { name: string; key: string };
+  configMissing?: MissingRef;
+  secretMissing?: MissingRef;
   probeBroken?: boolean;
+}
+
+/** Name of the deployment's container (used by `set image` and the YAML view). */
+export function containerNameOf(d: K8sDeployment): string {
+  return d.containerName ?? (d.name.split("-")[0] || d.name);
+}
+
+/** The port the app inside this deployment's image REALLY listens on.
+ *  `containerPort` in the manifest is only documentation, as in real Kubernetes. */
+export function listenPortOf(cluster: Cluster, d: K8sDeployment): number {
+  return cluster.registry[d.image]?.listenPort ?? 8080;
 }
 
 export function podStartupIssue(
@@ -93,15 +111,56 @@ export function podStartupIssue(
   const issue: StartupIssue = {};
   if (d.configRef) {
     const cm = cluster.configMaps.find((c) => c.name === d.configRef!.name);
-    if (!cm || !(d.configRef.key in cm.data)) issue.configMissing = d.configRef;
+    if (!cm || !(d.configRef.key in cm.data)) {
+      issue.configMissing = { ...d.configRef, objectMissing: !cm };
+    }
   }
   if (d.secretRef) {
     const sec = cluster.secrets.find((s) => s.name === d.secretRef!.name);
-    if (!sec || !(d.secretRef.key in sec.data)) issue.secretMissing = d.secretRef;
+    if (!sec || !(d.secretRef.key in sec.data)) {
+      issue.secretMissing = { ...d.secretRef, objectMissing: !sec };
+    }
   }
-  const listens = d.containerPort ?? 8080;
-  if (d.probePort !== undefined && d.probePort !== listens) issue.probeBroken = true;
+  if (d.probePort !== undefined && d.probePort !== listenPortOf(cluster, d)) {
+    issue.probeBroken = true;
+  }
   return issue;
+}
+
+/**
+ * The kubelet's error when a NON-optional reference blocks container creation
+ * (pod status `CreateContainerConfigError`). Undefined when nothing blocks.
+ * Wording matches the real kubelet so the lesson transfers.
+ */
+export function configErrorMessage(issue: StartupIssue): string | undefined {
+  const c = issue.configMissing;
+  if (c && !c.optional) {
+    return c.objectMissing
+      ? `configmap "${c.name}" not found`
+      : `couldn't find key ${c.key} in ConfigMap default/${c.name}`;
+  }
+  const s = issue.secretMissing;
+  if (s && !s.optional) {
+    return s.objectMissing
+      ? `secret "${s.name}" not found`
+      : `couldn't find key ${s.key} in Secret default/${s.name}`;
+  }
+  return undefined;
+}
+
+/** True when an `optional: true` reference is missing: the container starts,
+ *  the app finds its setting absent and exits (CrashLoopBackOff). */
+export function crashesOnMissingConfig(issue: StartupIssue): boolean {
+  return !!issue.configMissing?.optional || !!issue.secretMissing?.optional;
+}
+
+/** Stable fake pod IP (10.244.<node index>.<n>) so kubectl output looks real. */
+export function podIP(cluster: Cluster, pod: K8sPod): string {
+  if (!pod.nodeName) return "<none>";
+  const nodeIdx = Math.max(0, cluster.nodes.findIndex((n) => n.name === pod.nodeName));
+  let h = 0;
+  for (const ch of pod.uid) h = (h * 31 + ch.charCodeAt(0)) % 250;
+  return `10.244.${nodeIdx}.${h + 2}`;
 }
 
 export function addEvent(
@@ -150,9 +209,11 @@ export function serviceHealth(cluster: Cluster, svcName: string): number {
   if (deployments.length === 0) return 0; // selector matches nothing
   let desired = 0;
   let ready = 0;
+  const targetPort = svc.targetPort ?? 8080;
   for (const d of deployments) {
     desired += d.replicas;
-    ready += readyPodsOf(cluster, d.name).length;
+    // Traffic only lands if the service forwards to the port the app listens on.
+    if (targetPort === listenPortOf(cluster, d)) ready += readyPodsOf(cluster, d.name).length;
   }
   if (desired === 0) return 0;
   return Math.min(1, ready / desired);
@@ -190,10 +251,16 @@ export function terminatePod(cluster: Cluster, pod: K8sPod) {
   addEvent(cluster, "Normal", `pod/${pod.name}`, "Stopping container");
 }
 
-/** Roll a deployment: all owned pods are replaced with the current image. */
+/**
+ * Roll a deployment. Kubetopia models ONE rollout strategy: `Recreate` — every
+ * old pod is stopped, then the new ones are created (so a bad release is a
+ * full outage). Real Deployments default to `RollingUpdate`, which keeps old
+ * pods serving while new ones prove themselves; that is not simulated, and the
+ * YAML view / `describe deployment` say `Recreate` so players are not misled.
+ */
 export function rolloutDeployment(cluster: Cluster, d: K8sDeployment) {
   for (const p of livePodsOf(cluster, d.name)) terminatePod(cluster, p);
-  addEvent(cluster, "Normal", `deployment/${d.name}`, `Rolling out image ${d.image}`);
+  addEvent(cluster, "Normal", `deployment/${d.name}`, `Rolling out image ${d.image} (strategy: Recreate)`);
 }
 
 export function failNode(cluster: Cluster, nodeName: string) {
@@ -234,6 +301,32 @@ function schedulable(cluster: Cluster, pod: K8sPod, node: K8sNode): boolean {
   );
 }
 
+/** Why no node can take this pod, in the real scheduler's wording. */
+export function schedulingFailureMessage(cluster: Cluster, pod: K8sPod): string {
+  let controlPlane = 0;
+  let unreachable = 0;
+  let cordoned = 0;
+  let cpu = 0;
+  let mem = 0;
+  for (const n of cluster.nodes) {
+    if (n.roles === "control-plane") controlPlane++;
+    else if (n.status !== "Ready") unreachable++;
+    else if (n.cordoned) cordoned++;
+    else {
+      const use = nodeUsage(cluster, n.name);
+      if (use.cpu + pod.cpu > n.cpuCapacity) cpu++;
+      else if (use.mem + pod.memory > n.memCapacity) mem++;
+    }
+  }
+  const reasons: string[] = [];
+  if (cpu) reasons.push(`${cpu} Insufficient cpu`);
+  if (mem) reasons.push(`${mem} Insufficient memory`);
+  if (controlPlane) reasons.push(`${controlPlane} node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }`);
+  if (unreachable) reasons.push(`${unreachable} node(s) had untolerated taint {node.kubernetes.io/unreachable: }`);
+  if (cordoned) reasons.push(`${cordoned} node(s) were unschedulable`);
+  return `0/${cluster.nodes.length} nodes are available: ${reasons.join(", ")}.`;
+}
+
 /** Advance the cluster by one tick. Mutates in place. */
 export function tick(cluster: Cluster) {
   cluster.tick += 1;
@@ -248,9 +341,12 @@ export function tick(cluster: Cluster) {
         addEvent(cluster, "Normal", `deployment/${d.name}`, `Created pod ${pod.name}`);
       }
     } else if (live.length > d.replicas) {
+      // Like the real ReplicaSet controller: remove pods that aren't serving
+      // first (unscheduled, then not-Ready), and only then the newest ones.
+      const rank = (p: K8sPod) => (p.phase === "Pending" ? 0 : p.ready ? 2 : 1);
       const extra = live
         .slice()
-        .sort((a, b) => b.createdAtTick - a.createdAtTick)
+        .sort((a, b) => rank(a) - rank(b) || b.createdAtTick - a.createdAtTick)
         .slice(0, live.length - d.replicas);
       for (const p of extra) terminatePod(cluster, p);
     }
@@ -284,7 +380,7 @@ export function tick(cluster: Cluster) {
         cluster,
         "Warning",
         `pod/${pod.name}`,
-        "FailedScheduling: 0 nodes available (insufficient resources or nodes unschedulable)"
+        `FailedScheduling: ${schedulingFailureMessage(cluster, pod)}`
       );
     }
   }
@@ -324,9 +420,29 @@ export function tick(cluster: Cluster) {
             `Failed to pull image "${pod.image}": not found in registry`
           );
         } else {
-          pod.phase = "Running";
+          const blocked = configErrorMessage(podStartupIssue(cluster, pod.owner));
+          if (blocked) {
+            // A required (non-optional) ConfigMap/Secret reference is missing:
+            // the kubelet cannot even create the container.
+            pod.phase = "CreateContainerConfigError";
+            pod.phaseTicks = 0;
+            addEvent(cluster, "Warning", `pod/${pod.name}`, `Failed: Error: ${blocked}`);
+          } else {
+            pod.phase = "Running";
+            pod.phaseTicks = 0;
+            pod.ready = false;
+          }
+        }
+        break;
+      }
+      case "CreateContainerConfigError": {
+        // The kubelet keeps retrying; the pod starts by itself once the
+        // reference resolves (no restart needed, restart count stays 0).
+        if (!configErrorMessage(podStartupIssue(cluster, pod.owner))) {
+          const owner = cluster.deployments.find((d) => d.name === pod.owner);
+          if (owner) pod.image = owner.image;
+          pod.phase = "ContainerCreating";
           pod.phaseTicks = 0;
-          pod.ready = false;
         }
         break;
       }
@@ -343,7 +459,9 @@ export function tick(cluster: Cluster) {
       }
       case "Running": {
         const issue = podStartupIssue(cluster, pod.owner);
-        if (image?.crashes || issue.configMissing || issue.secretMissing) {
+        // Only `optional: true` references can crash a running app; a missing
+        // NON-optional reference never gets this far (CreateContainerConfigError).
+        if (image?.crashes || crashesOnMissingConfig(issue)) {
           pod.ready = false;
           if (pod.phaseTicks >= CRASH_AFTER) {
             pod.restarts += 1;
@@ -354,11 +472,7 @@ export function tick(cluster: Cluster) {
               cluster,
               "Warning",
               `pod/${pod.name}`,
-              issue.configMissing
-                ? `BackOff: container crashed — config key "${issue.configMissing.key}" not found in ConfigMap "${issue.configMissing.name}"`
-                : issue.secretMissing
-                  ? `BackOff: container crashed — key "${issue.secretMissing.key}" not found in Secret "${issue.secretMissing.name}"`
-                  : `BackOff: container exited with code 1, restarting (${pod.restarts})`
+              `BackOff: Back-off restarting failed container (exit code 1, restart ${pod.restarts}) — see kubectl logs`
             );
           }
         } else if (issue.probeBroken) {
@@ -369,7 +483,7 @@ export function tick(cluster: Cluster) {
               cluster,
               "Warning",
               `pod/${pod.name}`,
-              `Readiness probe failed: Get "http://pod:${owner?.probePort}/healthz": connection refused`
+              `Readiness probe failed: Get "http://${podIP(cluster, pod)}:${owner?.probePort}/healthz": dial tcp ${podIP(cluster, pod)}:${owner?.probePort}: connect: connection refused`
             );
           }
         } else if (!pod.ready && pod.phaseTicks >= READY_DELAY) {

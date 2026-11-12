@@ -60,6 +60,7 @@ const level1: LevelDef = {
       replicas: 2,
       image: "bakery-web:2.0-beta",
       previousImage: "bakery-web:1.4",
+      containerName: "web",
     });
     c.deployments.push(bakery);
     c.services.push({ name: "bakery-svc", selectorApp: "bakery-web", port: 80 });

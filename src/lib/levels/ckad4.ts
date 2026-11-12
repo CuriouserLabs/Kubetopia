@@ -22,7 +22,7 @@ const ckad4: LevelDef = {
     },
     {
       speaker: "mentor",
-      text: "Kid, before you touch that deployment, burn this into your brain: know your way BACK before you go forward. `kubectl rollout undo` has saved more careers than coffee. Records is a critical app — if it goes down, the whole hospital feels it.",
+      text: "Kid, before you touch that deployment, burn this into your brain: know your way BACK before you go forward. `kubectl rollout undo` has saved more careers than coffee. Records is a critical app, and because 5.0 migrates the database it deploys with the Recreate strategy: every old pod stops before a new one starts. No safety net of old pods — if the new version is bad, the whole hospital feels it.",
     },
     {
       speaker: "kublet",
@@ -31,7 +31,7 @@ const ckad4: LevelDef = {
   ],
   outro:
     "Records 5.1 settles in like it was always there: allergies load, charts fly, the ransom-note font is gone forever. Dr. Iris frames a printout of your terminal history and titles it 'Anatomy of a Rollback'. Old Sal mutters 'shipped, burned, recovered, reshipped — that's the whole job, kid.'",
-  parTicks: 250,
+  parTicks: 200,
   buildCluster: () => {
     const c = emptyCluster();
     c.nodes.push(
@@ -68,6 +68,7 @@ const ckad4: LevelDef = {
         image: "patient-records:4.2",
         critical: true,
         cpuPerPod: 300,
+        containerName: "records",
       }),
       makeDeployment("xray-archive", { replicas: 2, image: "xray-archive:2.0" })
     );
@@ -107,7 +108,7 @@ const ckad4: LevelDef = {
       id: "hotfix",
       title: "Land the 5.1 hotfix",
       description:
-        "Upstream shipped patient-records:5.1 with the migration fixed. Ship it — carefully this time — and verify the rollout completes.",
+        "Upstream is cutting a 5.1 hotfix with the migration fixed. The moment Kublet announces it has reached the registry, ship it — carefully this time — and verify the rollout completes.",
       points: 300,
       hint: "Wait for the hotfix announcement, then `kubectl set image deployment/patient-records records=patient-records:5.1` and check `kubectl rollout status deployment/patient-records`.",
       check: (ctx) => {
@@ -131,7 +132,11 @@ const ckad4: LevelDef = {
   ],
   events: [
     {
-      atTick: 55,
+      // Only fires once 5.0 has actually been shipped — never while 4.2 is
+      // still happily serving.
+      atTick: Number.POSITIVE_INFINITY,
+      afterObjective: "ship",
+      afterDelay: 8,
       title: "🚨 Charts are down!",
       speaker: "doctor",
       story:
@@ -139,6 +144,8 @@ const ckad4: LevelDef = {
     },
     {
       atTick: 85,
+      afterObjective: "rollback",
+      afterDelay: 6,
       title: "🩹 Hotfix published",
       speaker: "kublet",
       story:
@@ -156,6 +163,8 @@ const ckad4: LevelDef = {
     },
     {
       atTick: 160,
+      afterObjective: "hotfix",
+      afterDelay: 6,
       title: "👨‍👩‍👧 Visiting hours",
       speaker: "crier",
       story:
