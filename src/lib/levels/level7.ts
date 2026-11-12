@@ -65,7 +65,10 @@ const level7: LevelDef = {
       makeDeployment("town-banners", {
         replicas: 2,
         image: "banners:2.5",
-        configRef: { name: "banner-config", key: "royal.theme" },
+        // optional: true => the container starts without the variable and the
+        // app itself exits (CrashLoopBackOff + a log line). Without it the pod
+        // would sit in CreateContainerConfigError instead.
+        configRef: { name: "banner-config", key: "royal.theme", optional: true },
       })
     );
     c.services.push(

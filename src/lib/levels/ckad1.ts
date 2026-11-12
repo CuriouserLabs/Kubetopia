@@ -43,6 +43,7 @@ spec:
     app: admissions
   ports:
     - port: 80
+      targetPort: 8080
 `;
 
 const ckad1: LevelDef = {

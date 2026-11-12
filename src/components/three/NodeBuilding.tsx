@@ -21,6 +21,7 @@ function podColor(phase: PodPhase, ready: boolean): { color: string; pulse: bool
   if (phase === "Pending") return { color: "#94a3b8", pulse: true };
   if (phase === "CrashLoopBackOff") return { color: "#ef4444", pulse: true };
   if (phase === "ImagePullBackOff") return { color: "#a855f7", pulse: true };
+  if (phase === "CreateContainerConfigError") return { color: "#f97316", pulse: true };
   if (phase === "Terminating") return { color: "#6b7280", pulse: false };
   return { color: "#475569", pulse: true }; // Unknown
 }

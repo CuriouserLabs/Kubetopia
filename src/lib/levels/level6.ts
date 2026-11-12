@@ -43,6 +43,7 @@ spec:
     app: library-web
   ports:
     - port: 80
+      targetPort: 8080
 `;
 
 const CATALOG_YAML = `# catalog.yaml — the library's card catalog service
@@ -79,6 +80,7 @@ spec:
     app: catalog
   ports:
     - port: 80
+      targetPort: 8080
 `;
 
 const level6: LevelDef = {

@@ -68,7 +68,8 @@ const ckad3: LevelDef = {
     const dashboard = makeDeployment("ward-dashboard", {
       replicas: 2,
       image: "ward-dashboard:1.6",
-      configRef: { name: "ward-config", key: "wards.enabled" },
+      // optional: true => the app starts, misses its setting and exits (CrashLoopBackOff).
+      configRef: { name: "ward-config", key: "wards.enabled", optional: true },
     });
     c.deployments.push(admissions, telemetry, dashboard);
     c.services.push(

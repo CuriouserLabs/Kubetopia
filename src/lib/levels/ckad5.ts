@@ -83,7 +83,8 @@ const ckad5: LevelDef = {
       replicas: 2,
       image: "lab-analyzer:5.5",
       cpuPerPod: 300,
-      secretRef: { name: "natl-health-api", key: "api-token" },
+      // optional: true => the app starts, finds no token and exits (CrashLoopBackOff).
+      secretRef: { name: "natl-health-api", key: "api-token", optional: true },
     });
     const oxygen = makeDeployment("oxygen-scheduler", {
       replicas: 2,

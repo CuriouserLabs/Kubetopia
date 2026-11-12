@@ -57,6 +57,7 @@ spec:
     app: prescriptions
   ports:
     - port: 443
+      targetPort: 8080
 `;
 
 const ckad2: LevelDef = {
@@ -113,7 +114,8 @@ const ckad2: LevelDef = {
     const pharmacy = makeDeployment("pharmacy", {
       replicas: 2,
       image: "pharmacy:3.1",
-      configRef: { name: "formulary-config", key: "formulary.version" },
+      // optional: true => the app starts, misses its setting and exits (CrashLoopBackOff).
+      configRef: { name: "formulary-config", key: "formulary.version", optional: true },
     });
     c.deployments.push(admissions, pharmacy);
     c.services.push(
