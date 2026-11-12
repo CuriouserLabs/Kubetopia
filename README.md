@@ -3,8 +3,9 @@
 Kubetopia is a browser game for practicing **Kubernetes** the way Cisco Packet Tracer lets you
 practice networking. You play the on-call engineer for **Kubetopia**, a cartoon 3D island town
 where every building is a node and every glowing crate is a pod. Real `kubectl` commands drive a
-**simulated cluster** — when workloads fail, the townsfolk get unhappy, and it's on you to fix
-things before the happiness meter bottoms out.
+**simulated cluster** — when workloads fail, the townsfolk get unhappy (the happiness meter tracks
+how much of the town is really being served), and it's on you to fix things fast: stars are awarded
+on the mission clock. There is no "game over" — a slow fix just earns fewer stars.
 
 Play it at **[play.kubequest.org](https://play.kubequest.org)**. It's a companion to
 **[KubeQuest](https://kubequest.org)** (CKA/CKAD study plans) and shares one Google sign-in —
@@ -109,6 +110,25 @@ Failure modes are **data**: an image in the simulated registry can be missing
 ConfigMap/Secret key that doesn't exist; a readiness probe can point at the wrong port; a Service
 selector can be mistyped; a node can be failed by a scripted event.
 
+### Where the simulator differs from a real cluster (on purpose)
+
+Kubetopia is honest about its shortcuts — each one is visible in the console rather than hidden:
+
+- **One rollout strategy: `Recreate`.** Changing a pod template stops every old pod, then starts new
+  ones, so a bad release is a full outage. Real Deployments default to `RollingUpdate`, which keeps
+  old pods serving. The YAML view and `kubectl describe deployment` both say `Recreate`.
+- **One container per pod, one label (`app`), one namespace (`default`).** No ReplicaSets are shown;
+  pods are owned directly by their Deployment.
+- **Requests only.** Scheduling uses CPU/memory *requests*, exactly like the real scheduler; there are
+  no limits and no live usage, so `kubectl top` reports that metrics-server is not installed.
+- **`containerPort` is documentation**, as in real Kubernetes. The port an app listens on belongs to
+  its image (`ImageInfo.listenPort`); readiness probes and a Service's `targetPort` must match *that*.
+- **Missing ConfigMap/Secret references behave like the real kubelet:** a plain reference blocks the
+  container (`CreateContainerConfigError`, no logs, 0 restarts); `optional: true` lets the container
+  start, and an app that needs the value then crash-loops and says so in its logs.
+- **`kubectl edit secret` shows `stringData`** (plain text) for readability; `kubectl get secret
+  <name> -o yaml` shows the authentic base64 `data`.
+
 ## Project structure
 
 The design keeps the **simulation** (pure, framework-free TypeScript), the **content** (mission
@@ -165,7 +185,16 @@ to keep in mind, both learned the hard way:
   recovering, say), a check that requires the broken state *right now* becomes impossible to
   satisfy and the player is stuck forever.
 - Match commands with `ranCommand`, which normalises the `k` alias to `kubectl` — write your regex
-  against `kubectl ...`.
+  against `kubectl ...`. Only commands kubectl *accepted* count; a typo or a NotFound never ticks
+  an objective.
+- Don't make fast players wait. A scripted event that the next objective depends on should name the
+  objective it follows (`afterObjective`, optional `afterDelay`): it then fires a few ticks after the
+  player gets there, with `atTick` as the latest possible time. Give such an event an `id` and test
+  `ctx.firedEvents.includes(id)` instead of comparing `ctx.tick` with a constant.
+- Never describe something that has not happened yet. Objective text is shown the moment the
+  previous objective completes, which may be before the event it talks about.
+- Check capacity puzzles with the test suite: assert that the "wrong" plan really leaves pods
+  `Pending`, not just that the intended plan works.
 
 Then add the mission to the completability suite ([tests/missions.test.ts](tests/missions.test.ts))
 in **both** timing profiles and run `npm test` — the slow-player profile is what catches
